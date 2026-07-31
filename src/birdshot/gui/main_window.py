@@ -31,7 +31,7 @@ from ..naming import PRESET_SHUTTERS_US, describe_shutter, shutter_dir
 from .calibrate import CalibrationDialog
 from .focus_monitor import FocusMonitor
 from .preview import HistogramWidget, PreviewWidget, ToneCurveWidget
-from .widgets import Accordion, BlockingOverlay, FullscreenPreview
+from .widgets import Accordion, BlockingOverlay, FullscreenPreview, ModeTuner
 
 
 # Measured RAM-burst rates, keyed by capture size. These are what the sensor
@@ -312,8 +312,43 @@ class MainWindow(QMainWindow):
         self.preview = PreviewWidget()
         self.preview.double_clicked.connect(self._toggle_fullscreen)
         self.histogram = HistogramWidget()
+        self.histogram.set_levels(self.cfg.get("tone_black", 0.0),
+                                  self.cfg.get("tone_white", 1.0))
+        self.histogram.levels_changed.connect(self._levels_changed)
+        # Applying reopens the camera, so a drag must not do it per pixel.
+        self._levels_timer = QTimer(self)
+        self._levels_timer.setSingleShot(True)
+        self._levels_timer.setInterval(900)
+        self._levels_timer.timeout.connect(self._apply_levels)
         lv.addWidget(self.preview, 1)
         lv.addWidget(self.histogram)
+
+        lrow = QHBoxLayout()
+        lrow.setContentsMargins(6, 0, 6, 0)
+        hint = QLabel("levels: click left = black, right = white, arrows nudge, "
+                      "double-click resets")
+        hint.setStyleSheet("color:#7a7a84;font-size:11px;")
+        lrow.addWidget(hint, 1)
+        chk_live = QCheckBox("apply to capture")
+        chk_live.setChecked(bool(self.cfg.get("levels_live", True)))
+        chk_live.setToolTip("Writes the levels into the ISP curve. Reopens the\n"
+                            "camera, so it waits until you stop adjusting.")
+        chk_live.toggled.connect(
+            lambda v: (self.cfg.__setitem__("levels_live", v), self._save()))
+        lrow.addWidget(chk_live)
+        lrow.addWidget(QLabel("knee"))
+        kn = QDoubleSpinBox()
+        kn.setRange(0.0, 0.45)
+        kn.setSingleStep(0.02)
+        kn.setDecimals(2)
+        kn.setValue(float(self.cfg.get("tone_knee_soft", 0.12)))
+        kn.setToolTip("How gently tones round off outside the points.\n"
+                      "0 clips hard; higher compresses more smoothly.")
+        kn.valueChanged.connect(
+            lambda v: (self.cfg.__setitem__("tone_knee_soft", v), self._save(),
+                       self._levels_timer.start()))
+        lrow.addWidget(kn)
+        lv.addLayout(lrow)
         lv.addWidget(self._build_readout())
         splitter.addWidget(left)
 
@@ -357,6 +392,9 @@ class MainWindow(QMainWindow):
         tabs.addTab(storage, "Storage")
         tabs.addTab(process, "Process")
         self._hide_redundant_buttons()
+        # The mode header is built before the sections exist, so its first call
+        # had nothing to expand. Re-run it now that they do.
+        self._mode_changed(self.tuner.index())
         tabs.currentChanged.connect(self._tab_changed)
         self._tabs = tabs
 
@@ -377,6 +415,12 @@ class MainWindow(QMainWindow):
         act_full.setShortcut("F11")
         act_full.triggered.connect(self._toggle_fullscreen)
         self.addAction(act_full)
+        for key, delta in (("[", -1), ("]", 1)):
+            a = QAction(self)
+            a.setShortcut(key)
+            a.triggered.connect(lambda _c=False, d=delta: self._step_mode(d))
+            self.addAction(a)
+
         act_esc = QAction(self)
         act_esc.setShortcut("Esc")
         act_esc.triggered.connect(self._dismiss_overlay)
@@ -418,16 +462,9 @@ class MainWindow(QMainWindow):
         box = QGroupBox()
         v = QVBoxLayout(box)
 
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Mode"))
-        self.cmb_shoot = QComboBox()
-        for label, _key, _hint in self.MODES:
-            self.cmb_shoot.addItem(label)
-        self.cmb_shoot.setCurrentIndex(int(self.cfg.get("shoot_mode", 0)))
-        self.cmb_shoot.currentIndexChanged.connect(self._mode_changed)
-        self.cmb_shoot.setStyleSheet("font-size:14px;padding:4px;")
-        row.addWidget(self.cmb_shoot, 1)
-        v.addLayout(row)
+        self.tuner = ModeTuner(self.MODES, int(self.cfg.get("shoot_mode", 0)))
+        self.tuner.changed.connect(self._mode_changed)
+        v.addWidget(self.tuner)
 
         self.lbl_mode_hint = QLabel()
         self.lbl_mode_hint.setStyleSheet("color:#888;")
@@ -482,7 +519,7 @@ class MainWindow(QMainWindow):
         self.preview.stripe_px = int(self.cfg.get("outdoor_stripe_px", 3))
         self.preview.outdoor_strength = float(self.cfg.get("outdoor_strength", 1.0))
 
-        self._mode_changed(self.cmb_shoot.currentIndex())
+        self._mode_changed(self.tuner.index())
         return box
 
     def _hide_redundant_buttons(self) -> None:
@@ -497,6 +534,35 @@ class MainWindow(QMainWindow):
             if b is not None:
                 b.setVisible(False)
 
+    def _levels_changed(self, black: float, white: float) -> None:
+        self.cfg["tone_black"] = round(float(black), 4)
+        self.cfg["tone_white"] = round(float(white), 4)
+        self._save()
+        span = max(1e-6, white - black)
+        self.status.showMessage(
+            "levels  black %.2f  white %.2f   mid-tones expanded %.1fx"
+            % (black, white, 1.0 / span), 4000)
+        if self.cfg.get("levels_live", True):
+            self._levels_timer.start()   # restart on every move; fires once
+
+    def _apply_levels(self) -> None:
+        """Push the levels into the ISP curve, once the user stops moving them."""
+        if self.cfg.get("tone_black", 0.0) <= 0.001 and \
+           self.cfg.get("tone_white", 1.0) >= 0.999:
+            # Full range: nothing to grade, so leave the stock curve alone
+            # rather than writing an identity tuning and reopening the camera.
+            if self.cfg.get("tone_curve") == "levels":
+                self.cfg["tone_curve"] = "stock"
+                self._save()
+                self.engine.send("reconfigure")
+            return
+        self.cfg["tone_curve"] = "levels"
+        self._save()
+        self._tone_changed(apply=False)
+        self.engine.send("reconfigure")
+        self._log("levels applied: black %.2f white %.2f (camera reopened)"
+                  % (self.cfg["tone_black"], self.cfg["tone_white"]))
+
     def _mode_changed(self, idx: int) -> None:
         idx = max(0, min(idx, len(self.MODES) - 1))
         self.cfg["shoot_mode"] = idx
@@ -510,6 +576,11 @@ class MainWindow(QMainWindow):
             elif any(title.lower().startswith(m[0].lower()) for m in self.MODES):
                 acc.set_expanded(False)
         self._refresh_go_button()
+
+    def _step_mode(self, delta: int) -> None:
+        if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video"):
+            return          # never switch mode mid-capture
+        self.tuner.step(delta)
 
     def _refresh_go_button(self) -> None:
         state = self.engine.state

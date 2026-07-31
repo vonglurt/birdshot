@@ -462,6 +462,55 @@ def cmd_selftest(args, cfg):
         raise AssertionError("did not settle in 12 frames (got %s)" % describe_shutter(us))
     check("PID converges", t_pid)
 
+    def t_ae_damping():
+        """The loop must hold still on noise yet still jump on a real change."""
+        import random, math, statistics
+        from birdshot.analysis import FrameStats
+        from birdshot.exposure import ExposureController
+        if os.path.exists("/tmp/birdshot-selftest-ae.json"):
+            os.unlink("/tmp/birdshot-selftest-ae.json")
+        c = Config("/tmp/birdshot-selftest-ae.json")
+        c["target_luma"] = 47.0
+        c["ae_average_n"] = 3
+        c["ae_average_mode"] = "median"
+        c["ae_damping"] = 0.5
+        c["pid_deadband_ev"] = 0.20
+
+        def run(disturb_at=None, noise=0.06, steps=160):
+            ctrl = ExposureController(c)
+            rnd = random.Random(11)
+            us, gain, lum = 2350, 1.0, 0.020
+            pipe = [(us, gain)] * 2           # the real control latency
+            energies = []
+            for i in range(steps):
+                if disturb_at is not None and i == disturb_at:
+                    lum = 0.005
+                su, sg = pipe.pop(0)
+                m = max(1.0, lum * su * sg * (1.0 + rnd.gauss(0, noise)))
+                d = ctrl.update(FrameStats(meter=m, p50=m, p95=m * 1.6),
+                                su, sg, lux=None, now=i * 0.1)
+                us, gain = d.exposure_us, d.gain
+                pipe.append((us, gain))
+                energies.append(us * gain)
+            return energies
+
+        # Steady scene: exposure must barely move despite 6% metering noise.
+        steady = run()
+        lg = [math.log2(e) for e in steady[40:]]
+        wander = statistics.pstdev(lg)
+        assert wander < 0.05, "loop still hunting: %.3f EV sd" % wander
+
+        # Real change: it must still respond, not sit there filtered.
+        moved = run(disturb_at=60)
+        before = statistics.median(moved[50:60])
+        after = statistics.median(moved[-20:])
+        assert after > before * 2.0, \
+            "loop failed to respond to a 4x light drop (%.0f -> %.0f)" % (before, after)
+        if os.path.exists("/tmp/birdshot-selftest-ae.json"):
+            os.unlink("/tmp/birdshot-selftest-ae.json")
+        return "steady %.3f EV sd, still tracks a 4x light change" % wander
+    check("AE damping", t_ae_damping)
+
     def t_storage():
         import shutil
         from birdshot.analysis import FrameStats

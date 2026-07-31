@@ -337,15 +337,89 @@ class PreviewWidget(QWidget):
 
 
 class HistogramWidget(QWidget):
-    """Luminance histogram with clipping shoulders and the metering target."""
+    """Luminance histogram, and the place you set the black and white points.
+
+    Click the left half to drop the black point, the right half for white; the
+    arrow keys nudge whichever you touched last. Between the two the range is
+    stretched, which is what makes the mid-tones legible; outside them the tone
+    curve's knees round off rather than clipping.
+    """
+
+    levels_changed = pyqtSignal(float, float)   # black, white, normalised 0..1
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(90)
+        self.setMinimumHeight(110)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.SizeHorCursor)
+        self.setToolTip("Click left half = black point, right half = white point.\n"
+                        "Arrow keys nudge the last one you set.")
         self._hist: Optional[np.ndarray] = None
         self._stats: Optional[FrameStats] = None
         self.target: float = 118.0
+        self.black: float = 0.0
+        self.white: float = 1.0
+        self.show_levels = True
+        self._active = "white"
+
+    # -- interaction ----------------------------------------------------
+    def set_levels(self, black: float, white: float) -> None:
+        self.black = max(0.0, min(0.95, float(black)))
+        self.white = max(self.black + 0.02, min(1.0, float(white)))
+        self.update()
+
+    def _set_from_x(self, x: int) -> None:
+        pos = max(0.0, min(1.0, x / max(1, self.width())))
+        if pos < 0.5:
+            self._active = "black"
+            self.black = min(pos, self.white - 0.02)
+        else:
+            self._active = "white"
+            self.white = max(pos, self.black + 0.02)
+        self.levels_changed.emit(self.black, self.white)
+        self.update()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self.setFocus()
+        self._set_from_x(event.x())
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if event.buttons() & Qt.LeftButton:
+            # Drag whichever point is already active, so crossing the midpoint
+            # does not snatch the other one away mid-gesture.
+            pos = max(0.0, min(1.0, event.x() / max(1, self.width())))
+            if self._active == "black":
+                self.black = min(pos, self.white - 0.02)
+            else:
+                self.white = max(pos, self.black + 0.02)
+            self.levels_changed.emit(self.black, self.white)
+            self.update()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        step = 0.05 if event.modifiers() & Qt.ShiftModifier else 0.01
+        if event.key() == Qt.Key_Left:
+            delta = -step
+        elif event.key() == Qt.Key_Right:
+            delta = step
+        elif event.key() in (Qt.Key_Up, Qt.Key_Down):
+            self._active = "white" if self._active == "black" else "black"
+            self.update()
+            return
+        else:
+            super().keyPressEvent(event)
+            return
+        if self._active == "black":
+            self.black = max(0.0, min(self.white - 0.02, self.black + delta))
+        else:
+            self.white = max(self.black + 0.02, min(1.0, self.white + delta))
+        self.levels_changed.emit(self.black, self.white)
+        self.update()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        self.black, self.white = 0.0, 1.0
+        self.levels_changed.emit(self.black, self.white)
+        self.update()
 
     def set_frame(self, y: Optional[np.ndarray], stats: Optional[FrameStats]) -> None:
         if y is None or y.size == 0:
@@ -387,6 +461,23 @@ class HistogramWidget(QWidget):
         tx = int(self.target * w / 256.0)
         painter.setPen(QPen(QColor(90, 230, 140), 2))
         painter.drawLine(tx, 0, tx, h)
+
+        if self.show_levels:
+            bx = int(self.black * w)
+            wx = int(self.white * w)
+            # Shade what falls outside the points -- it is not discarded, the
+            # knees compress it, but it is no longer in the expanded range.
+            painter.fillRect(0, 0, bx, h, QColor(0, 0, 0, 120))
+            painter.fillRect(wx, 0, w - wx, h, QColor(0, 0, 0, 120))
+            for x, col, name, active in (
+                    (bx, QColor(70, 150, 255), "black", self._active == "black"),
+                    (wx, QColor(255, 190, 60), "white", self._active == "white")):
+                painter.setPen(QPen(col, 3 if active else 2))
+                painter.drawLine(x, 0, x, h)
+                painter.setFont(QFont("DejaVu Sans", 8, QFont.Bold if active else QFont.Normal))
+                painter.setPen(col)
+                label = ("[%s]" % name) if active else name
+                painter.drawText(x + 4 if x < w - 46 else x - 44, h - 4, label)
 
         if self._stats is not None:
             painter.setPen(QColor(150, 150, 160))

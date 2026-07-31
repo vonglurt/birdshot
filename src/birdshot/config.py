@@ -91,7 +91,15 @@ DEFAULTS: Dict[str, Any] = {
     "pid_deadband_ev": 0.20,
     "pid_slew_ev": 1.5,  # max EV change per frame once settled
     "pid_integral_clamp_ev": 2.0,
-    "meter_ema": 0.4,  # smoothing on the measured metric (0 = none)
+    "meter_ema": 0.4,  # kept for compatibility; the window below supersedes it
+    # Average this many metering readings, then apply only this fraction of the
+    # computed correction. Together they stop the loop crawling and hunting.
+    "ae_average_n": 3,
+    "ae_average_mode": "median",   # median | mean | none
+    "ae_damping": 0.5,
+    # Reach for exposure duration before gain. Gain costs noise permanently; a
+    # longer exposure only costs motion blur, and only once it gets long.
+    "prefer_exposure_time": True,
     # ---- metering targets (overwritten by the calibration wizard) -------
     "target_luma": 118.0,  # desired subject-zone median, 0-255
     "max_clip_frac": 0.020,  # tolerated clipping, measured on the subject zone
@@ -111,6 +119,13 @@ DEFAULTS: Dict[str, Any] = {
     "tone_gamma": 2.2,
     "tone_contrast": 1.0,
     "tone_lift": 0.0,
+    # Levels, set by clicking the histogram. Between the points the range is
+    # stretched (expanding the mid-tones); outside them the knees round off
+    # asymptotically rather than clipping.
+    "tone_black": 0.0,
+    "tone_white": 1.0,
+    "tone_knee_soft": 0.12,
+    "levels_live": True,    # write histogram levels into the ISP curve
     "tone_knee": 0.65,      # where the highlight shoulder begins
     "tone_shoulder": 2.0,   # how hard whites round off toward 1.0
     "isp_contrast": 1.0,     # live control, 1.0 = tuning default

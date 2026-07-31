@@ -60,7 +60,29 @@ PRESETS = [
     ("contrast", "Stock curve with contrast scaled about mid-grey"),
     ("lift", "Stock curve with shadows lifted or crushed"),
     ("rolloff", "Soft shoulder: rounds off blown whites and lifts a dark average"),
+    ("levels", "Black/white points set on the histogram, with rounded knees"),
 ]
+
+
+def knee_map(t: float, k: float) -> float:
+    """Map t to (0,1): linear in the middle, exponential knees at both ends.
+
+    Straight clipping throws away everything past the set points -- blown white
+    is blown, and no amount of grading brings it back. This instead bends
+    asymptotically toward 0 and 1, so tones near the ends compress rather than
+    disappear, and nothing ever actually reaches a hard stop.
+
+    The knees join the linear segment with matching slope, so there is no visible
+    kink where they meet.
+    """
+    if k <= 0.0:
+        return min(1.0, max(0.0, t))
+    k = min(k, 0.49)
+    if t < k:
+        return k * math.exp((t - k) / k)
+    if t > 1.0 - k:
+        return 1.0 - k * math.exp(-(t - (1.0 - k)) / k)
+    return t
 
 
 def tuning_path() -> Optional[str]:
@@ -106,10 +128,13 @@ def _interp(x: float, xs: Sequence[float], ys: Sequence[float]) -> float:
 
 def build_curve(kind: str = "stock", gamma: float = 2.2, contrast: float = 1.0,
                 lift: float = 0.0, knee: float = 0.65,
-                shoulder: float = 2.0) -> Tuple[List[float], List[float]]:
+                shoulder: float = 2.0, black: float = 0.0,
+                white: float = 1.0,
+                knee_soft: float = 0.12) -> Tuple[List[float], List[float]]:
     """Return (xs, ys) normalised 0..1 for the requested tone curve."""
     xs, ys = stock_curve()
     kw_knee, kw_shoulder = knee, shoulder
+    kw_black, kw_white, kw_knee_soft = black, white, knee_soft
 
     if kind == "linear":
         return list(xs), list(xs)
@@ -125,6 +150,22 @@ def build_curve(kind: str = "stock", gamma: float = 2.2, contrast: float = 1.0,
         k = max(0.05, float(contrast))
         out = [min(1.0, max(0.0, mid + (y - mid) * k)) for y in ys]
         out[0], out[-1] = 0.0, 1.0
+        return list(xs), out
+
+    if kind == "levels":
+        # Black and white points, as set on the histogram. Everything between
+        # them is stretched to the full range -- which is what "expand the
+        # centre" means, and why the mid-tones become easier to judge: a scene
+        # occupying 0.15-0.70 now uses all of 0..1 instead of half of it.
+        b = min(0.95, max(0.0, float(kw_black)))
+        w = max(b + 0.02, min(1.0, float(kw_white)))
+        k = max(0.0, min(0.49, float(kw_knee_soft)))
+        out = []
+        for x, y in zip(xs, ys):
+            t = (y - b) / (w - b)
+            out.append(min(1.0, max(0.0, knee_map(t, k))))
+        out[0] = 0.0
+        out[-1] = 1.0
         return list(xs), out
 
     if kind == "rolloff":
@@ -180,6 +221,9 @@ def curve_from_cfg(cfg) -> Tuple[List[float], List[float]]:
         lift=float(cfg.get("tone_lift", 0.0)),
         knee=float(cfg.get("tone_knee", 0.65)),
         shoulder=float(cfg.get("tone_shoulder", 2.0)),
+        black=float(cfg.get("tone_black", 0.0)),
+        white=float(cfg.get("tone_white", 1.0)),
+        knee_soft=float(cfg.get("tone_knee_soft", 0.12)),
     )
 
 
@@ -233,6 +277,10 @@ def describe(cfg) -> str:
         lines[0] += " (x%.2f)" % float(cfg.get("tone_contrast", 1.0))
     elif kind == "lift":
         lines[0] += " (%+.2f)" % float(cfg.get("tone_lift", 0.0))
+    elif kind == "levels":
+        lines[0] += " (black %.2f, white %.2f, knee %.2f)" % (
+            float(cfg.get("tone_black", 0.0)), float(cfg.get("tone_white", 1.0)),
+            float(cfg.get("tone_knee_soft", 0.12)))
     elif kind == "rolloff":
         lines[0] += " (knee %.2f, shoulder %.1f, lift %+.2f)" % (
             float(cfg.get("tone_knee", 0.65)), float(cfg.get("tone_shoulder", 2.0)),
