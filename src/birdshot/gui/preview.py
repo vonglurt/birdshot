@@ -27,6 +27,7 @@ class PreviewWidget(QWidget):
     """Scaled live view with optional analysis overlays."""
 
     double_clicked = pyqtSignal()
+    overlays_toggled = pyqtSignal(bool)   # wheel up = all on, down = all off
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -51,6 +52,10 @@ class PreviewWidget(QWidget):
         self.outdoor_style = "boost"   # boost | edges
         self.outdoor_strength = 1.0
         self.stripe_px = 3        # width of each yellow/black band
+        # Compact camera-style HUD drawn on the image itself, so the readout
+        # does not need a panel underneath stealing height from the canvas.
+        self.show_hud = True
+        self._hud = {}
 
         self._image: Optional[QImage] = None
         self._buf: Optional[np.ndarray] = None  # must outlive the QImage
@@ -68,6 +73,21 @@ class PreviewWidget(QWidget):
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
         self.double_clicked.emit()
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        """Scroll over the image to turn every overlay on or off at once.
+
+        Framing and judging are different jobs: you want everything visible
+        while setting up, and a clean picture while watching. One gesture over
+        the image itself beats hunting four checkboxes on another tab.
+        """
+        delta = event.angleDelta().y()
+        if delta:
+            self.overlays_toggled.emit(delta > 0)
+        event.accept()
+
+    def set_hud(self, info: dict) -> None:
+        self._hud = info or {}
 
     def set_focus_map(self, fmap, best, peak: float) -> None:
         self._fmap = fmap
@@ -172,6 +192,9 @@ class PreviewWidget(QWidget):
         out[edge & ~stripe] = (0, 0, 0)
         return out
 
+    def heightForWidth(self, w: int) -> int:  # noqa: N802
+        return int(w * 3 / 4)          # the sensor is 4:3, so the canvas is
+
     def _target_rect(self) -> QRect:
         if self._image is None:
             return self.rect()
@@ -230,6 +253,9 @@ class PreviewWidget(QWidget):
         if self.show_sharpness and self._stats is not None:
             self._paint_sharpness(painter, rect)
 
+        if self.show_hud and self._hud:
+            self._paint_hud(painter, rect)
+
         if self.outdoor:
             painter.setPen(QPen(QColor(255, 230, 40), 2))
             painter.drawRect(rect.adjusted(1, 1, -2, -2))
@@ -256,6 +282,40 @@ class PreviewWidget(QWidget):
         painter.end()
 
     # ------------------------------------------------------------------
+    def _paint_hud(self, painter: QPainter, rect: QRect) -> None:
+        """Camera-style readout in the corner of the image."""
+        h = self._hud
+        line1 = "%s   %s   %s" % (h.get("shutter", "-"), h.get("gain", "-"),
+                                  h.get("folder", ""))
+        line2 = "%s   %s   %s" % (h.get("lux", ""), h.get("fps", ""),
+                                  h.get("clip", ""))
+        verdict = h.get("verdict", "")
+        ae = h.get("ae", "")
+
+        painter.save()
+        painter.setFont(QFont("DejaVu Sans Mono", 11, QFont.Bold))
+        fm = painter.fontMetrics()
+        width = max(fm.width(line1) if hasattr(fm, "width") else 200,
+                    fm.width(line2) if hasattr(fm, "width") else 200,
+                    fm.width(ae) if hasattr(fm, "width") else 200) + 18
+        box_h = 78
+        x, y = rect.left() + 8, rect.top() + 8
+        painter.fillRect(x, y, width, box_h, QColor(0, 0, 0, 155))
+
+        painter.setPen(QColor(240, 240, 245))
+        painter.drawText(x + 9, y + 20, line1)
+        painter.setFont(QFont("DejaVu Sans Mono", 9))
+        painter.setPen(QColor(175, 180, 190))
+        painter.drawText(x + 9, y + 38, line2)
+        painter.drawText(x + 9, y + 70, ae)
+
+        colour = {"ok": QColor(95, 208, 122), "dark": QColor(90, 160, 255),
+                  "blown": QColor(255, 106, 68), "empty": QColor(224, 168, 40)}
+        painter.setFont(QFont("DejaVu Sans", 10, QFont.Bold))
+        painter.setPen(colour.get(verdict.lower(), QColor(200, 200, 200)))
+        painter.drawText(x + 9, y + 55, verdict.upper())
+        painter.restore()
+
     def _paint_focus_map(self, painter: QPainter, rect: QRect) -> None:
         """Shade each tile by how sharp it is, and ring the sharpest.
 
@@ -349,7 +409,9 @@ class HistogramWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(110)
+        # Trimmed: every pixel here comes out of the 4:3 canvas above.
+        self.setMinimumHeight(74)
+        self.setMaximumHeight(88)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.SizeHorCursor)

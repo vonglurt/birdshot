@@ -180,6 +180,29 @@ class MainWindow(QMainWindow):
         self.lbl_lux.setText("%.0f" % lux if lux else "-")
         self.lbl_fps.setText("%.1f" % (payload.get("fps") or 0.0))
 
+        clip_txt = "clip %.2f%%" % (stats.clip_hi * 100.0) if stats else "clip -"
+        ae_txt = ("%s err %+.2f out %+.2f EV"
+                  % (decision.mode, decision.ev_error, decision.ev_output)
+                  if decision is not None else "")
+        self.lbl_line.setText(
+            "%s   g%.2f   %s   %s lux   %.1f fps   %s   sharp %s   tiles %s"
+            % (describe_shutter(shutter), gain, shutter_dir(shutter),
+               ("%.0f" % lux) if lux else "-", payload.get("fps") or 0.0,
+               clip_txt,
+               ("%.1f" % stats.sharpness_norm) if stats and stats.focus_measured
+               else "-",
+               stats.contrast_tiles if stats else "-"))
+        self.preview.set_hud({
+            "shutter": describe_shutter(shutter),
+            "gain": "g%.2f" % gain,
+            "folder": shutter_dir(shutter),
+            "lux": ("%s lux" % int(lux)) if lux else "",
+            "fps": "%.1f fps" % (payload.get("fps") or 0.0),
+            "clip": clip_txt,
+            "verdict": stats.verdict if stats else "",
+            "ae": ae_txt,
+        })
+
         if stats is not None:
             self.lbl_verdict.setText(stats.verdict.upper())
             self.lbl_verdict.setStyleSheet(
@@ -195,9 +218,7 @@ class MainWindow(QMainWindow):
             self.lbl_tiles.setText("%d" % stats.contrast_tiles
                                    if self.engine.state not in ("rapid", "drain") else "-")
             self.lbl_clip.setText("%.2f%%" % (stats.clip_hi * 100.0))
-        if decision is not None:
-            self.lbl_ae.setText("%s  err %+.2f EV  out %+.2f EV"
-                                % (decision.mode, decision.ev_error, decision.ev_output))
+
 
         if self._fullscreen is not None:
             self._fullscreen.view.set_frame(payload.get("rgb"), payload.get("y"), stats)
@@ -311,6 +332,7 @@ class MainWindow(QMainWindow):
         lv.addWidget(self.banner)
         self.preview = PreviewWidget()
         self.preview.double_clicked.connect(self._toggle_fullscreen)
+        self.preview.overlays_toggled.connect(self._set_all_overlays)
         self.histogram = HistogramWidget()
         self.histogram.set_levels(self.cfg.get("tone_black", 0.0),
                                   self.cfg.get("tone_white", 1.0))
@@ -320,6 +342,7 @@ class MainWindow(QMainWindow):
         self._levels_timer.setSingleShot(True)
         self._levels_timer.setInterval(900)
         self._levels_timer.timeout.connect(self._apply_levels)
+        lv.setSpacing(3)
         lv.addWidget(self.preview, 1)
         lv.addWidget(self.histogram)
 
@@ -401,10 +424,16 @@ class MainWindow(QMainWindow):
         right = QScrollArea()
         right.setWidgetResizable(True)
         right.setWidget(tabs)
-        right.setMinimumWidth(430)
+        # Cap the sidebar rather than letting it take a share of the width. The
+        # canvas is 4:3 (the sensor is 4056x3040), so once it is height-limited
+        # every extra pixel of width is wasted -- but until then width is what
+        # makes the image bigger. Fixing the panel gives the canvas the rest.
+        right.setMinimumWidth(400)
+        right.setMaximumWidth(480)
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setCollapsible(1, True)
 
         self.setCentralWidget(splitter)
 
@@ -611,17 +640,43 @@ class MainWindow(QMainWindow):
             self._fullscreen.view.outdoor = on
         self.preview.update()
 
+    def _set_all_overlays(self, on: bool) -> None:
+        """Scroll wheel over the image: everything on, or everything off."""
+        for w in (self.preview, getattr(self._fullscreen, "view", None)):
+            if w is None:
+                continue
+            w.show_zebra = on
+            w.show_zones = on
+            w.show_grid = on
+            w.show_peaking = on
+            w.show_focus_map = on
+            w.show_sharpness = on
+            w.show_hud = on
+            w.update()
+        # Keep the Focus tab's checkboxes honest about what is actually drawn.
+        for chk, val in ((getattr(self, "chk_fmap", None), on),
+                         (getattr(self, "chk_sharp_num", None), on),
+                         (getattr(self, "chk_peak2", None), on),
+                         (getattr(self, "chk_zebra2", None), on)):
+            if chk is not None:
+                chk.blockSignals(True)
+                chk.setChecked(val)
+                chk.blockSignals(False)
+        self.engine.send("focus_map", on=on)
+        self.status.showMessage("all overlays %s" % ("on" if on else "off"), 2000)
+
     def _toggle_fullscreen(self) -> None:
         if self._fullscreen is not None:
             self._fullscreen.close()
             return
         view = PreviewWidget()
         for attr in ("show_zebra", "show_peaking", "show_zones", "show_grid",
-                     "show_focus_map", "show_sharpness", "outdoor",
+                     "show_focus_map", "show_sharpness", "show_hud", "outdoor",
                      "outdoor_style", "outdoor_strength", "stripe_px",
                      "sky_zone_frac"):
             setattr(view, attr, getattr(self.preview, attr))
         view.double_clicked.connect(self._toggle_fullscreen)
+        view.overlays_toggled.connect(self._set_all_overlays)
         self._fullscreen = FullscreenPreview(view, self)
         self._fullscreen.closed.connect(self._fullscreen_closed)
         self._fullscreen.showFullScreen()
@@ -630,39 +685,37 @@ class MainWindow(QMainWindow):
         self._fullscreen = None
 
     def _build_readout(self) -> QWidget:
-        box = QGroupBox("Live readout")
-        grid = QGridLayout(box)
+        """One compact line. The detail lives in the HUD drawn on the image.
+
+        The old five-row grid cost about 110px of height that the 4:3 canvas
+        wanted more than the numbers did.
+        """
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(6, 0, 6, 0)
+        row.setSpacing(10)
         mono = QFont("DejaVu Sans Mono", 10)
 
-        def cell(row: int, col: int, label: str) -> QLabel:
-            grid.addWidget(QLabel(label), row, col * 2)
-            v = QLabel("-")
-            v.setFont(mono)
-            grid.addWidget(v, row, col * 2 + 1)
-            return v
+        self.lbl_line = QLabel("-")
+        self.lbl_line.setFont(mono)
+        row.addWidget(self.lbl_line, 1)
 
-        self.lbl_shutter = cell(0, 0, "Shutter")
-        self.lbl_gain = cell(0, 1, "Gain")
-        self.lbl_folder = cell(0, 2, "Folder")
-        self.lbl_lux = cell(1, 0, "Lux")
-        self.lbl_fps = cell(1, 1, "FPS")
-        self.lbl_clip = cell(1, 2, "Clipped")
-        self.lbl_verdict = cell(2, 0, "Verdict")
-        self.lbl_sharp = cell(2, 1, "Sharpness")
-        self.lbl_tiles = cell(2, 2, "Detail tiles")
+        self.lbl_verdict = QLabel("-")
+        self.lbl_verdict.setFont(QFont("DejaVu Sans", 10, QFont.Bold))
+        row.addWidget(self.lbl_verdict)
 
-        grid.addWidget(QLabel("AE"), 3, 0)
-        self.lbl_ae = QLabel("-")
-        self.lbl_ae.setFont(mono)
-        grid.addWidget(self.lbl_ae, 3, 1, 1, 5)
-
-        grid.addWidget(QLabel("Session"), 4, 0)
         self.lbl_session = QLabel("-")
         self.lbl_session.setFont(mono)
-        grid.addWidget(self.lbl_session, 4, 1, 1, 2)
-        self.lbl_counts = QLabel("-")
-        self.lbl_counts.setFont(mono)
-        grid.addWidget(self.lbl_counts, 4, 3, 1, 3)
+        self.lbl_session.setStyleSheet("color:#8d949c;")
+        row.addWidget(self.lbl_session)
+
+        # Kept so the rest of the code can keep writing to them; they simply
+        # feed the single line and the on-image HUD now.
+        for name in ("lbl_shutter", "lbl_gain", "lbl_folder", "lbl_lux",
+                     "lbl_fps", "lbl_clip", "lbl_sharp", "lbl_tiles",
+                     "lbl_ae", "lbl_counts"):
+            setattr(self, name, QLabel())
+        box.setMaximumHeight(26)
         return box
 
     # ---- binding helpers ---------------------------------------------
