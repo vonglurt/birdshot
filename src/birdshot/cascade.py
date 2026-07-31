@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Tiered storage cascade: capture fast, migrate downwards, never fill up.
 
 Frames are written into **groups** -- numbered directories holding a bounded
@@ -623,6 +623,28 @@ class Cascade(threading.Thread):
 
 
 # ----------------------------------------------------------------------
+def friendly_label(path: str) -> str:
+    """A human name for a tier, derived from where it actually lives.
+
+    Configured labels get overwritten by --tiers and by anything that rewrites
+    the tier list, and a raw path is a poor answer to "where did that frame go".
+    The filesystem knows better than the config does.
+    """
+    if is_remote(path):
+        host, rest = split_remote(path)
+        return "%s (network)" % host.split("@")[-1]
+    mount = _mount_point(path)
+    fst = _fstype(mount)
+    if fst == "tmpfs":
+        return "RAM"
+    if mount.startswith("/media/") or mount.startswith("/mnt/") or \
+            mount.startswith("/run/media/"):
+        return "%s (USB)" % os.path.basename(mount.rstrip("/"))
+    if mount == "/":
+        return "eMMC"
+    return os.path.basename(mount.rstrip("/")) or mount
+
+
 def is_ram_path(path: str) -> bool:
     """True if this tier lives on a tmpfs, i.e. is volatile."""
     if is_remote(path):
@@ -648,9 +670,12 @@ def build_tiers(cfg) -> List[Tier]:
         # to be the archive.
         if not use_ram and is_ram_path(path) and i < len(specs) - 1:
             continue
+        configured = (spec.get("label") if isinstance(spec, dict) else "") or ""
+        # A label equal to the path carries no information -- derive one.
         t = Tier(
             path=path,
-            label=(spec.get("label") if isinstance(spec, dict) else "") or path,
+            label=configured if configured and configured != path
+            else friendly_label(path),
             min_free_mb=float(spec.get("min_free_mb", 512)) if isinstance(spec, dict) else 512.0,
             flush_after_s=float(spec.get("flush_after_s", 30)) if isinstance(spec, dict) else 30.0,
             speed_mb_s=float(spec.get("speed_mb_s", 60)) if isinstance(spec, dict) else 60.0,

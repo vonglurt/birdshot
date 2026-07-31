@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 # Two-way source sync between this Mac and the Pi, plus deployment.
 #
 #   ./sync.sh push          Mac  -> Pi   (source only)

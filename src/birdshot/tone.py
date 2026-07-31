@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Output tone curve for the IMX477.
 
 **The HQ camera's gamma curve is already applied.** libcamera's tuning file for

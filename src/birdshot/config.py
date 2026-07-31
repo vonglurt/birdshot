@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Persisted settings, calibration set-points and resume state.
 
 Everything the user tunes in the GUI lands in a single JSON file so that a

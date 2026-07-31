@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Always-on-top focus monitor for the manual-focus C-mount lens.
 
 Three things make manual focus on this rig hard: the lens has no feedback, the

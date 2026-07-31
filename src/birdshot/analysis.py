@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Frame analysis: metering, exposure quality gates and focus aids.
 
 Pure numpy -- OpenCV is not installed on the Pi and is not worth the build.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Session layout, the frame index, and background offload to USB.
 
 Layout under ``data_root`` (the eMMC, because it writes at 78 MB/s where the

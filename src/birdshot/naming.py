@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Shutter-duration folder naming, compatible with the existing runCam.sh convention.
 
 The legacy scripts used one directory per shutter speed:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Write EXIF metadata into captured frames, as a preprocessing step.
 
 Deliberately **not** done at capture time. Rapid capture runs at up to 35 fps and

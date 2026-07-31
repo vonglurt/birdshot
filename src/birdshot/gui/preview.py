@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Live preview pane and histogram.
 
 The preview is drawn by hand rather than using QGlPicamera2 because the overlays
@@ -255,6 +255,8 @@ class PreviewWidget(QWidget):
 
         if self.show_hud and self._hud:
             self._paint_hud(painter, rect)
+        if self._hud.get("countdown") is not None:
+            self._paint_countdown(painter, rect)
 
         if self.outdoor:
             painter.setPen(QPen(QColor(255, 230, 40), 2))
@@ -314,6 +316,42 @@ class PreviewWidget(QWidget):
         painter.setFont(QFont("DejaVu Sans", 10, QFont.Bold))
         painter.setPen(colour.get(verdict.lower(), QColor(200, 200, 200)))
         painter.drawText(x + 9, y + 55, verdict.upper())
+        painter.restore()
+
+    def _paint_countdown(self, painter: QPainter, rect: QRect) -> None:
+        """Time to the next timelapse frame, as a ring and a number.
+
+        Always drawn, even with the overlays off -- during a timelapse the whole
+        question is "is it still running, and when does the next one land", and
+        that should not be hidden by a scroll of the wheel.
+        """
+        remain = float(self._hud.get("countdown") or 0.0)
+        total = max(0.001, float(self._hud.get("interval") or 1.0))
+        frac = max(0.0, min(1.0, remain / total))
+
+        size = 96
+        x = rect.right() - size - 14
+        y = rect.top() + 14
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(QColor(0, 0, 0, 165))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(x, y, size, size)
+
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(60, 70, 80), 6))
+        painter.drawEllipse(x + 6, y + 6, size - 12, size - 12)
+        # Sweeps clockwise from twelve as the wait runs down.
+        painter.setPen(QPen(QColor(95, 208, 122), 6, Qt.SolidLine, Qt.RoundCap))
+        painter.drawArc(x + 6, y + 6, size - 12, size - 12,
+                        90 * 16, -int(360 * 16 * (1.0 - frac)))
+
+        painter.setPen(QColor(240, 245, 250))
+        painter.setFont(QFont("DejaVu Sans", 20, QFont.Bold))
+        painter.drawText(x, y + 30, size, 34, Qt.AlignCenter, "%.1f" % remain)
+        painter.setFont(QFont("DejaVu Sans", 8))
+        painter.setPen(QColor(160, 170, 180))
+        painter.drawText(x, y + 58, size, 16, Qt.AlignCenter, "s to next")
         painter.restore()
 
     def _paint_focus_map(self, painter: QPainter, rect: QRect) -> None:

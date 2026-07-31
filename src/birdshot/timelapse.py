@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Assemble captured stills into a movie with ffmpeg.
 
 Frames are selected from a session's ``index.jsonl`` so the quality gates carry

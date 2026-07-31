@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """birdshot -- IMX477 bird and sky capture for the Raspberry Pi CM4.
 
 Modules:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """The capture engine: one Picamera2 instance, driven by a state machine.
 
 Runs on its own thread and talks to the GUI purely through an event callback,
@@ -180,6 +180,7 @@ class CameraEngine(threading.Thread):
         self._video_out: Optional[str] = None
         self._video_started = 0.0
         self._last_video_stat = 0.0
+        self._last_written: Optional[str] = None
         self._encoder: Optional[H264Encoder] = None
         self._last_preview = 0.0
         self._last_latest = 0.0
@@ -517,6 +518,17 @@ class CameraEngine(threading.Thread):
                                  "target": self._target_frames})
         self._state = RAPID
 
+    def _destination_label(self) -> str:
+        """Where frames end up, not where they are being written right now."""
+        from .cascade import friendly_label
+
+        casc = getattr(self.storage, "cascade", None)
+        if casc is not None and casc.tiers:
+            return casc.tiers[-1].label
+        if self.cfg["offload_to_usb"]:
+            return friendly_label(self.cfg["usb_root"])
+        return friendly_label(self.cfg["data_root"])
+
     def _camera_ready(self) -> bool:
         """Guard against issuing a request to a stopped camera.
 
@@ -697,6 +709,8 @@ class CameraEngine(threading.Thread):
                 request.release()
                 self._inflight.release()
             path = self.storage.write_rapid(jpeg, seq, when, stats, exposure_us, gain)
+            if path:
+                self._last_written = os.path.basename(path)
             self._emit("frame", {
                 "path": path, "seq": seq, "stats": stats, "decision": None,
                 "shutter_us": exposure_us, "gain": gain, "bytes": len(jpeg),
@@ -935,6 +949,8 @@ class CameraEngine(threading.Thread):
                 request.release()
                 self._inflight.release()
             path = self.storage.write_frame(jpeg, exposure_us, gain, seq, stats, decision)
+            if path:
+                self._last_written = os.path.basename(path)
             self._emit("frame", {
                 "path": path, "seq": seq, "stats": stats, "decision": decision,
                 "shutter_us": exposure_us, "gain": gain, "bytes": len(jpeg),
@@ -1084,6 +1100,17 @@ class CameraEngine(threading.Thread):
             "target": self._target_frames,
             "fps": fps,
             "free_mb": self.storage.free_mb(),
+            # Seconds until the next timelapse exposure. Costs one subtraction;
+            # everything else here is already being computed.
+            "next_in": (max(0.0, self._next_shot - time.monotonic())
+                        if self._state == TIMELAPSE else None),
+            "interval": (float(self.cfg["timelapse_interval_s"])
+                         if self._state == TIMELAPSE else None),
+            # Basename only. The full path is transient -- with the cascade on,
+            # a frame starts on tmpfs and ends up on the USB stick, so the
+            # directory it is in right now is not where it will live.
+            "last_file": self._last_written,
+            "destination": self._destination_label(),
         })
 
     # ==================================================================

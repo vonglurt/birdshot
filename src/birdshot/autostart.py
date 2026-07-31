@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Unattended start: detect an ``autowrite.yes`` USB stick and configure from it.
 
 Drop a file called ``autowrite.yes`` in the root of any USB stick and birdshot will,

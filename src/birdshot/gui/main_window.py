@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Main GUI window.
 
 Runs on the Pi's own display. The camera engine lives on a worker thread and
@@ -192,7 +192,19 @@ class MainWindow(QMainWindow):
                ("%.1f" % stats.sharpness_norm) if stats and stats.focus_measured
                else "-",
                stats.contrast_tiles if stats else "-"))
+        state = payload.get("state", "")
+        last = payload.get("last_file")
+        dest = payload.get("destination") or ""
+        # Basename plus the tier it will end up on -- never the current path.
+        # With the cascade running a frame starts on tmpfs and finishes on the
+        # stick, so the directory it happens to be in right now is not an
+        # answer to "where did that go".
+        if last:
+            self.lbl_session.setText("%s  ->  %s" % (last, dest))
         self.preview.set_hud({
+            "countdown": payload.get("next_in"),
+            "interval": payload.get("interval"),
+            "last_file": last,
             "shutter": describe_shutter(shutter),
             "gain": "g%.2f" % gain,
             "folder": shutter_dir(shutter),
@@ -202,6 +214,10 @@ class MainWindow(QMainWindow):
             "verdict": stats.verdict if stats else "",
             "ae": ae_txt,
         })
+        if payload.get("next_in") is not None:
+            self.status.showMessage(
+                "timelapse: next frame in %.1f s   |   last %s -> %s"
+                % (payload["next_in"], last or "-", dest), 1500)
 
         if stats is not None:
             self.lbl_verdict.setText(stats.verdict.upper())

@@ -118,6 +118,10 @@ Mac can never pick up a half-written JPEG.
 
 ## Getting started
 
+> New to it? **[GUIDE.md](GUIDE.md)** is a full tutorial: every mode, what each
+> adjustable number does when you change it, worked example settings for five
+> use cases, and how to set exposure, black and white points.
+
 From the Mac, in this directory:
 
 ```bash
@@ -694,9 +698,9 @@ Run it after any change.
 MIT. See [LICENSE](LICENSE). Every source file carries an
 `SPDX-License-Identifier: MIT` header.
 
-The copyright line reads `Copyright (c) 2026 Paul` -- change it in `LICENSE` and
+The copyright line reads `Copyright (c) 2026 Paul Richeson` -- change it in `LICENSE` and
 in the file headers if you want a different name:
 
 ```bash
-grep -rl "Copyright (c) 2026 Paul" . | xargs sed -i '' 's/Copyright (c) 2026 Paul/Copyright (c) 2026 Your Name/'
+grep -rl "Copyright (c) 2026 Paul Richeson" . | xargs sed -i '' 's/Copyright (c) 2026 Paul Richeson/Copyright (c) 2026 Your Name/'
 ```

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Auto-exposure: EV-space PID with highlight priority and a lux feed-forward.
 
 Why not just use libcamera's AGC/AEC? Two reasons, both of which bite hard on

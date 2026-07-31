@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Keep the Pi's desktop wallpaper showing the live camera view.
 
 The old runCam.sh trick was ``pcmanfm --set-wallpaper /home/pi/sauto/latest.png``

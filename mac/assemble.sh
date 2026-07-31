@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 # Assemble a pulled session into a movie, on the Mac.
 #
 #   ./mac/assemble.sh ~/birdshot-data/tlc-1730380000

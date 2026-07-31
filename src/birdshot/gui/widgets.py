@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Shared GUI pieces: collapsible sections, fullscreen preview, blocking overlay.
 
 The tab layout leans on :class:`Accordion` so a handful of tabs can hold what

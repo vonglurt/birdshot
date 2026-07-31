@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 # Pull captures off the Pi onto this Mac, so you can watch frames arrive live.
 #
 #   ./mac/pull-photos.sh once        one pass

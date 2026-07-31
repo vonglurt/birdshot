@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Paul
+# Copyright (c) 2026 Paul Richeson
 """Startup calibration wizard.
 
 Asks the user to point the camera at the two things that define this scene's
