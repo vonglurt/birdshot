@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, QRect
+from PyQt5.QtCore import Qt, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QFont
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 
@@ -25,6 +25,8 @@ PEAK_COLOR = (255, 40, 40)
 
 class PreviewWidget(QWidget):
     """Scaled live view with optional analysis overlays."""
+
+    double_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -48,6 +50,7 @@ class PreviewWidget(QWidget):
         self.outdoor = False
         self.outdoor_style = "boost"   # boost | edges
         self.outdoor_strength = 1.0
+        self.stripe_px = 3        # width of each yellow/black band
 
         self._image: Optional[QImage] = None
         self._buf: Optional[np.ndarray] = None  # must outlive the QImage
@@ -62,6 +65,9 @@ class PreviewWidget(QWidget):
     def set_banner(self, text: str) -> None:
         self._banner = text
         self.update()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        self.double_clicked.emit()
 
     def set_focus_map(self, fmap, best, peak: float) -> None:
         self._fmap = fmap
@@ -123,10 +129,13 @@ class PreviewWidget(QWidget):
         span = max(8.0, float(hi - lo))
         stretched = np.clip((rgb.astype(np.float32) - lo) * (255.0 / span), 0, 255)
 
+        # Adjacent differences, not central: a central difference straddles two
+        # pixels either side and draws a band three or four pixels wide, which
+        # smears fine detail. This responds on a single pixel.
         gx = np.zeros_like(g)
         gy = np.zeros_like(g)
-        gx[:, 1:-1] = g[:, 2:] - g[:, :-2]
-        gy[1:-1, :] = g[2:, :] - g[:-2, :]
+        gx[:, 1:] = g[:, 1:] - g[:, :-1]
+        gy[1:, :] = g[1:, :] - g[:-1, :]
         mag = np.abs(gx) + np.abs(gy)
         # Threshold relative to the scene's own gradients, so a hazy low-contrast
         # view still shows its edges instead of going blank. Higher strength
@@ -135,21 +144,32 @@ class PreviewWidget(QWidget):
         p96 = float(np.percentile(mag, 96.0))
         thresh = max(4.0, p96 / max(self.outdoor_strength, 0.1))
 
+        # Hazard striping: edges are drawn as alternating yellow and black bands
+        # rather than flat yellow. Solid yellow vanishes against a bright sky and
+        # black vanishes against shadow; alternating them means one of the two
+        # always contrasts, whatever the edge happens to lie on.
+        h, w = mag.shape
+        band = self.stripe_px if self.stripe_px > 0 else 3
+        rows = np.arange(h, dtype=np.int32)[:, None]
+        cols = np.arange(w, dtype=np.int32)[None, :]
+        stripe = ((rows + cols) // band) % 2 == 0
+        edge = mag > thresh
+
         if self.outdoor_style == "edges":
-            # Structure only: dark field, edges in bright cyan. Nothing else on
-            # screen competes with it in direct sun.
+            # Structure only: nothing else on screen competes with it in sun.
             out = np.zeros_like(rgb)
-            out[..., 0] = 12
-            out[..., 1] = 16
-            out[..., 2] = 20
-            strong = mag > thresh
-            out[strong] = (120, 255, 240)
-            mid = (mag > thresh * 0.5) & ~strong
-            out[mid] = (40, 130, 120)
+            out[..., 0] = 10
+            out[..., 1] = 12
+            out[..., 2] = 14
+            out[edge & stripe] = (255, 238, 0)
+            out[edge & ~stripe] = (0, 0, 0)
+            faint = (mag > thresh * 0.45) & ~edge
+            out[faint] = (70, 66, 20)
             return out
 
         out = stretched.astype(np.uint8)
-        out[mag > thresh] = (255, 255, 0)   # yellow reads through glare
+        out[edge & stripe] = (255, 238, 0)
+        out[edge & ~stripe] = (0, 0, 0)
         return out
 
     def _target_rect(self) -> QRect:

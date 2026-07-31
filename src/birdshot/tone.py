@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -58,6 +59,7 @@ PRESETS = [
     ("gamma", "Plain power curve, set by the gamma value"),
     ("contrast", "Stock curve with contrast scaled about mid-grey"),
     ("lift", "Stock curve with shadows lifted or crushed"),
+    ("rolloff", "Soft shoulder: rounds off blown whites and lifts a dark average"),
 ]
 
 
@@ -103,9 +105,11 @@ def _interp(x: float, xs: Sequence[float], ys: Sequence[float]) -> float:
 
 
 def build_curve(kind: str = "stock", gamma: float = 2.2, contrast: float = 1.0,
-                lift: float = 0.0) -> Tuple[List[float], List[float]]:
+                lift: float = 0.0, knee: float = 0.65,
+                shoulder: float = 2.0) -> Tuple[List[float], List[float]]:
     """Return (xs, ys) normalised 0..1 for the requested tone curve."""
     xs, ys = stock_curve()
+    kw_knee, kw_shoulder = knee, shoulder
 
     if kind == "linear":
         return list(xs), list(xs)
@@ -123,6 +127,33 @@ def build_curve(kind: str = "stock", gamma: float = 2.2, contrast: float = 1.0,
         out[0], out[-1] = 0.0, 1.0
         return list(xs), out
 
+    if kind == "rolloff":
+        # Two jobs at once, which is the shape you get when the subject sits
+        # dark under a sky that is already at the top of the range:
+        #
+        #   * lift the low and mid tones, so an on-average-dark frame is not
+        #     stranded far from white
+        #   * bend the top into a shoulder, so values approaching white bunch up
+        #     smoothly instead of slamming into a wall and going flat
+        #
+        # The result is the bathtub/S shape: open shadows, straight middle,
+        # rounded highlights, and nothing hard-clipped at the very top.
+        knee = min(0.95, max(0.20, float(kw_knee)))
+        shoulder = max(0.05, float(kw_shoulder))
+        amount = float(lift)
+        denom = 1.0 - math.exp(-shoulder)
+        out = []
+        for x, y in zip(xs, ys):
+            wl = max(0.0, 1.0 - y / 0.6)          # fades out by the mid-tones
+            v = y + amount * wl * (1.0 - y)
+            if v > knee:
+                t = (v - knee) / max(1e-6, 1.0 - knee)
+                v = knee + (1.0 - knee) * (1.0 - math.exp(-shoulder * t)) / denom
+            out.append(min(1.0, max(0.0, v)))
+        out[0] = 0.0
+        out[-1] = 1.0
+        return list(xs), out
+
     if kind == "lift":
         # Positive lift raises shadows (useful for birds against bright sky),
         # negative crushes them. Weighted to fade out by the mid-tones.
@@ -131,7 +162,10 @@ def build_curve(kind: str = "stock", gamma: float = 2.2, contrast: float = 1.0,
         for x, y in zip(xs, ys):
             w = max(0.0, 1.0 - x / 0.5)
             out.append(min(1.0, max(0.0, y + amount * w * (1.0 - y))))
-        out[0] = max(0.0, out[0])
+        # Anchor black at zero. Without this a positive lift raises the whole
+        # curve off the floor, so pure black is written into the ISP gamma as
+        # dark grey and every frame comes out with milky, unrecoverable blacks.
+        out[0] = 0.0
         out[-1] = 1.0
         return list(xs), out
 
@@ -144,6 +178,8 @@ def curve_from_cfg(cfg) -> Tuple[List[float], List[float]]:
         gamma=float(cfg.get("tone_gamma", 2.2)),
         contrast=float(cfg.get("tone_contrast", 1.0)),
         lift=float(cfg.get("tone_lift", 0.0)),
+        knee=float(cfg.get("tone_knee", 0.65)),
+        shoulder=float(cfg.get("tone_shoulder", 2.0)),
     )
 
 
@@ -197,6 +233,10 @@ def describe(cfg) -> str:
         lines[0] += " (x%.2f)" % float(cfg.get("tone_contrast", 1.0))
     elif kind == "lift":
         lines[0] += " (%+.2f)" % float(cfg.get("tone_lift", 0.0))
+    elif kind == "rolloff":
+        lines[0] += " (knee %.2f, shoulder %.1f, lift %+.2f)" % (
+            float(cfg.get("tone_knee", 0.65)), float(cfg.get("tone_shoulder", 2.0)),
+            float(cfg.get("tone_lift", 0.0)))
     lines.append("   in     this curve   stock")
     for v in (0.05, 0.1, 0.2, 0.4, 0.6, 0.8):
         lines.append("   %.2f   %.3f        %.3f" % (v, _interp(v, xs, ys), _interp(v, sx, sy)))

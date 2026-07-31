@@ -47,6 +47,14 @@ from . import tone
 
 LORES_SIZE = (640, 480)
 FOCUS_CROP = 512  # native-resolution centre crop used for the focus measure
+# How many frames to wait for a control to land before assuming the sensor
+# clamped it and carrying on from what it actually did.
+#
+# Measured on this CM4: a gain change takes 5-7 frames to appear in metadata,
+# not the 2 the docs imply -- the ISP pipeline is deeper than that. At 4 the
+# timeout fired before the sensor had answered, so the loop "recovered" from a
+# request that was about to land, re-issued a different one, and hunted forever.
+AE_LAND_FRAMES = 10
 
 # Camera buffers come from the kernel's CMA pool, which is 512 MB on this board
 # and is NOT ordinary RAM -- it must be physically contiguous, so it runs out
@@ -159,6 +167,10 @@ class CameraEngine(threading.Thread):
         self._exposure_us = int(st.get("last_shutter_us", cfg["manual_shutter_us"]))
         self._gain = float(st.get("last_gain", cfg["manual_gain"]))
         self._requested: Optional[Tuple[int, float]] = None
+        self._ae_waiting = 0
+        # Real limits reported by the sensor for the active mode, so we stop
+        # asking for exposures and gains it cannot deliver.
+        self._limits: Dict[str, Tuple[float, float]] = {}
         self._seq = 0
 
         # Burst / timelapse bookkeeping.
@@ -306,6 +318,29 @@ class CameraEngine(threading.Thread):
         # Never let the encoder pool hold so many requests that the camera has
         # none left to fill.
         self._inflight = threading.Semaphore(max(1, buffers - 2))
+
+        try:
+            cc = self._cam.camera_controls or {}
+            et = cc.get("ExposureTime")
+            ag = cc.get("AnalogueGain")
+            self._limits = {}
+            # libcamera reports an unknown maximum as 0 rather than omitting it.
+            # Taking that literally clamps every allocation to zero and divides
+            # by it, so a limit only counts when it is a real, ordered range.
+            def usable(pair):
+                try:
+                    lo, hi = float(pair[0]), float(pair[1])
+                except (TypeError, ValueError, IndexError):
+                    return None
+                return (lo, hi) if hi > lo > 0 else None
+
+            for key, pair in (("exposure", et), ("gain", ag)):
+                got = usable(pair) if pair else None
+                if got:
+                    self._limits[key] = got
+            self.controller.set_limits(self._limits)
+        except Exception:  # noqa: BLE001
+            self._limits = {}
 
         self._apply_exposure(force=True)
         self._cam.start()
@@ -958,12 +993,40 @@ class CameraEngine(threading.Thread):
         # A control set takes ~2 frames to land. Until the sensor reports back
         # the values we asked for, correcting again would double-count the error
         # and set the loop oscillating.
+        #
+        # But the sensor does not always give back what it was asked: exposure
+        # is capped by the frame duration, gain quantises, and both clamp at the
+        # mode's limits. Waiting indefinitely for an exact match is what made
+        # auto-exposure freeze -- it would sit there dark forever, because the
+        # one thing that could have corrected it was the loop that had stopped.
+        # So the wait is bounded, and after that we accept reality and carry on
+        # from whatever the sensor actually did.
         if self._requested is not None:
             req_us, req_gain = self._requested
-            landed = (abs(actual_us - req_us) <= max(2, req_us * 0.02)
-                      and abs(actual_gain - req_gain) <= 0.05)
-            if not landed:
-                return None
+            # Tolerances must allow for quantisation, not just latency. The
+            # IMX477 snaps analogue gain to its own steps -- asking for 2.10
+            # yields 2.00 -- and a flat 0.05 window never matched, so the loop
+            # stalled during perfectly ordinary operation. Relative windows.
+            landed = (abs(actual_us - req_us) <= max(2.0, req_us * 0.02)
+                      and abs(actual_gain - req_gain) <= max(0.08, req_gain * 0.08))
+            if landed:
+                self._ae_waiting = 0
+                self._requested = None
+            else:
+                self._ae_waiting += 1
+                if self._ae_waiting <= AE_LAND_FRAMES:
+                    return None
+                self._emit("ae", {
+                    "event": "recovered",
+                    "asked_us": req_us, "asked_gain": round(req_gain, 3),
+                    "got_us": actual_us, "got_gain": round(actual_gain, 3),
+                    "msg": "sensor clamped the request; resuming from actual",
+                })
+                self._requested = None
+                self._ae_waiting = 0
+                # Re-seed the controller from reality so the integral term is
+                # not still winding against a value that was never reachable.
+                self.controller.resync(actual_us, actual_gain)
 
         decision = self.controller.update(stats, actual_us, actual_gain, lux=lux)
         if decision.exposure_us != self._exposure_us or abs(decision.gain - self._gain) > 1e-3:

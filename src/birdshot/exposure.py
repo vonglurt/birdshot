@@ -46,6 +46,9 @@ _EPS = 1e-6
 FAST_ACQUIRE_EV = 1.5
 FAST_ACQUIRE_CLAMP_EV = 4.0
 SETTLED_FRAMES = 3
+# Below this correction the loop is holding station, even if the error itself
+# cannot be closed because another constraint is pushing back.
+STABLE_OUTPUT_EV = 0.10
 
 
 @dataclass
@@ -97,6 +100,11 @@ def allocate(
     Shutter is therefore always the shortest one that reaches the target at an
     acceptable noise level, which is what "smallest duration" asks for.
     """
+    motion_limit_us = max(1.0, float(motion_limit_us))
+    shutter_hard_max_us = max(motion_limit_us, float(shutter_hard_max_us))
+    gain_min = max(1e-3, float(gain_min))
+    gain_preferred_max = max(gain_min, float(gain_preferred_max))
+    gain_max = max(gain_preferred_max, float(gain_max))
     energy = max(energy, exposure_min_us * gain_min)
     e1 = motion_limit_us * gain_min
     e2 = motion_limit_us * gain_preferred_max
@@ -124,9 +132,26 @@ class ExposureController:
         self.reset()
 
     # ------------------------------------------------------------------
+    def set_limits(self, limits) -> None:
+        """Real per-mode limits from the sensor, so the ladder stays reachable."""
+        self._limits = dict(limits or {})
+
+    def resync(self, exposure_us: int, gain: float) -> None:
+        """Adopt what the sensor actually did as the new operating point.
+
+        Called when a request was clamped. The integral term is cleared because
+        it accumulated against a target that could never be reached; leaving it
+        wound up would immediately push straight back into the same clamp.
+        """
+        self._integral = 0.0
+        self._prev_error = 0.0
+        self._settled_count = 0
+        self._stable_count = 0
+
     def reset(self) -> None:
         self._integral = 0.0
         self._prev_error = 0.0
+        self._stable_count = 0
         self._prev_time: Optional[float] = None
         self._meter_ema: Optional[float] = None
         self._settled_count = 0
@@ -134,6 +159,8 @@ class ExposureController:
         st = self.cfg.get("state", {}) or {}
         self._k_lux: Optional[float] = st.get("k_lux")
         self._k_samples = 0
+        if not hasattr(self, "_limits"):
+            self._limits = {}
 
     # ------------------------------------------------------------------
     def target_luma(self) -> float:
@@ -212,12 +239,31 @@ class ExposureController:
 
         # Highlight priority: clipping can only ever demand *less* exposure, and
         # when it does it overrides the brightness demand entirely.
+        #
+        # Crucially it is measured on the SUBJECT zone, with the sky counted at
+        # a fraction. Metering whole-frame clipping against a bright sky meant
+        # the sky always exceeded the tolerance, so the term fired on every
+        # frame and drove exposure down until the treeline went black -- the
+        # loop sat there dark and never came back. Clipped sky is expected for
+        # this subject matter; clipped *subject* is what must pull exposure down.
+        # The two zones get separate tolerances rather than one weighted sum. A
+        # sky clipping 72% still swamps a 2% budget even at a quarter weight, so
+        # weighting alone left the loop stuck dark. The sky is allowed to clip
+        # heavily before it says anything, and when it does it only nudges.
         max_clip = max(float(cfg["max_clip_frac"]), 1e-4)
-        if stats.clip_hi > max_clip:
-            overage = (stats.clip_hi - max_clip) / max_clip
+        sky_tol = max(float(cfg.get("sky_clip_tolerance", 0.60)), 1e-4)
+
+        clip_err = 0.0
+        if stats.subject_clip_hi > max_clip:
+            overage = (stats.subject_clip_hi - max_clip) / max_clip
             clip_err = -min(3.0, 0.5 * math.log2(1.0 + overage))
-            if clip_err < err:
-                err, mode = clip_err, "highlight"
+        if stats.sky_clip_hi > sky_tol:
+            overage = (stats.sky_clip_hi - sky_tol) / sky_tol
+            # Capped and gentle: losing sky detail is the accepted trade here,
+            # so this only trims, it never drives.
+            clip_err = min(clip_err, -min(0.75, 0.35 * math.log2(1.0 + overage)))
+        if clip_err < 0.0 and clip_err < err:
+            err, mode = clip_err, "highlight"
 
         # Deadband: stop hunting once we are close enough.
         deadband = float(cfg["pid_deadband_ev"])
@@ -279,9 +325,23 @@ class ExposureController:
 
         energy = exposure_us * gain * (2.0 ** out)
         new_us, new_gain = self._allocate(energy)
-        self._learn(lux, exposure_us * gain, False)
+
+        # A constrained equilibrium counts as settled. When highlight priority
+        # and the brightness term pull against each other -- routine when
+        # exposing a dark subject under a blown sky -- the error never enters
+        # the deadband, but the loop has still converged: its output has gone to
+        # nothing. Requiring a small error instead of a small correction meant
+        # "settled" never fired in exactly the scene this camera is pointed at,
+        # which in turn stopped the lux constant ever being learned.
+        if abs(out) < STABLE_OUTPUT_EV:
+            self._stable_count += 1
+        else:
+            self._stable_count = 0
+        converged = self._stable_count >= SETTLED_FRAMES
+        self._learn(lux, exposure_us * gain, converged)
 
         return ExposureDecision(
+            settled=converged,
             exposure_us=new_us,
             gain=new_gain,
             ev_error=err,
@@ -299,15 +359,26 @@ class ExposureController:
         from .config import EXPOSURE_MAX_US, EXPOSURE_MIN_US, GAIN_MAX, GAIN_MIN
 
         cfg = self.cfg
+        # Prefer the limits the sensor reported for the active mode over the
+        # datasheet ones -- a binned 41 fps mode caps exposure far below the
+        # full-resolution maximum, and asking beyond it just gets clamped.
+        e_lo, e_hi = self._limits.get("exposure", (EXPOSURE_MIN_US, EXPOSURE_MAX_US))
+        g_lo, g_hi = self._limits.get("gain", (GAIN_MIN, GAIN_MAX))
+        # Belt and braces: a bad or unknown range must never collapse the ladder.
+        if not (e_hi > e_lo > 0):
+            e_lo, e_hi = EXPOSURE_MIN_US, EXPOSURE_MAX_US
+        if not (g_hi > g_lo > 0):
+            g_lo, g_hi = GAIN_MIN, GAIN_MAX
+        hard_max = max(1.0, min(float(cfg["shutter_hard_max_us"]), e_hi))
         return allocate(
             energy=energy,
-            motion_limit_us=float(cfg["motion_limit_us"]),
-            gain_preferred_max=float(cfg["gain_preferred_max"]),
-            shutter_hard_max_us=float(cfg["shutter_hard_max_us"]),
-            exposure_min_us=EXPOSURE_MIN_US,
-            exposure_max_us=min(EXPOSURE_MAX_US, float(cfg["shutter_hard_max_us"]) * 64),
-            gain_min=GAIN_MIN,
-            gain_max=GAIN_MAX,
+            motion_limit_us=max(1.0, min(float(cfg["motion_limit_us"]), hard_max)),
+            gain_preferred_max=min(float(cfg["gain_preferred_max"]), g_hi),
+            shutter_hard_max_us=hard_max,
+            exposure_min_us=max(EXPOSURE_MIN_US, e_lo),
+            exposure_max_us=min(EXPOSURE_MAX_US, e_hi),
+            gain_min=max(GAIN_MIN, g_lo),
+            gain_max=min(GAIN_MAX, g_hi),
         )
 
     # ------------------------------------------------------------------

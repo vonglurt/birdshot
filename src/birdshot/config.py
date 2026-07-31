@@ -86,13 +86,19 @@ DEFAULTS: Dict[str, Any] = {
     "pid_kp": 0.55,
     "pid_ki": 0.10,
     "pid_kd": 0.12,
-    "pid_deadband_ev": 0.12,
+    # Measured hunting amplitude with this sensor's gain quantisation is about
+    # 0.13 EV, so a 0.12 deadband sat just inside it and the loop never settled.
+    "pid_deadband_ev": 0.20,
     "pid_slew_ev": 1.5,  # max EV change per frame once settled
     "pid_integral_clamp_ev": 2.0,
     "meter_ema": 0.4,  # smoothing on the measured metric (0 = none)
     # ---- metering targets (overwritten by the calibration wizard) -------
     "target_luma": 118.0,  # desired subject-zone median, 0-255
-    "max_clip_frac": 0.020,  # tolerated fraction of pixels at/above 250
+    "max_clip_frac": 0.020,  # tolerated clipping, measured on the subject zone
+    # The sky gets its own, far looser clipping budget. It clips by nature when
+    # you expose for a bird beneath it, and holding it to the subject's 2% is
+    # what pinned exposure dark. Past this it only trims, never drives.
+    "sky_clip_tolerance": 0.60,
     "sky_zone_frac": 0.40,  # top fraction of frame treated as sky
     "sky_weight": 0.15,  # how much the sky zone counts toward metering
     "subject_weight": 1.0,
@@ -105,6 +111,8 @@ DEFAULTS: Dict[str, Any] = {
     "tone_gamma": 2.2,
     "tone_contrast": 1.0,
     "tone_lift": 0.0,
+    "tone_knee": 0.65,      # where the highlight shoulder begins
+    "tone_shoulder": 2.0,   # how hard whites round off toward 1.0
     "isp_contrast": 1.0,     # live control, 1.0 = tuning default
     "isp_brightness": 0.0,   # live control, -1..1
     "isp_saturation": 1.0,
@@ -141,7 +149,9 @@ DEFAULTS: Dict[str, Any] = {
     # source. Each tier clears itself, so capture runs for as long as the
     # BOTTOM tier has room rather than the top one.
     "shoot_mode": 0,        # index into the Shoot tab's mode dropdown
-    "outdoor_mode": False,  # high-contrast preview for bright sunlight
+    "outdoor_mode": False,     # high-contrast preview for bright sunlight
+    "outdoor_stripe_px": 3,    # width of each yellow/black hazard band
+    "outdoor_strength": 1.0,   # higher = more edges marked
     "cascade_enabled": False,
     # The RAM tier is optional. Turned off, the chain degrades cleanly to
     # eMMC -> USB; the path is otherwise identical, so nothing else changes.

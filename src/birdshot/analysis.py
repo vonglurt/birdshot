@@ -52,6 +52,7 @@ class FrameStats:
     # Zone metering.
     sky_p50: float = 0.0
     sky_clip_hi: float = 0.0
+    subject_clip_hi: float = 0.0   # clipping in the zone we actually expose for
     subject_p50: float = 0.0
     subject_p95: float = 0.0
     meter: float = 0.0  # the single number the PID controls
@@ -207,6 +208,7 @@ def meter_only(y: np.ndarray, cfg: Dict[str, Any]) -> FrameStats:
     st.sky_p50 = sky_p[2]
     _, _, sub_p, sub_clip, _ = _stats_from_hist(h_sub)
     st.subject_p50, st.subject_p95 = sub_p[2], sub_p[3]
+    st.subject_clip_hi = sub_clip
 
     sw = float(cfg.get("sky_weight", 0.15))
     uw = float(cfg.get("subject_weight", 1.0))
@@ -214,7 +216,7 @@ def meter_only(y: np.ndarray, cfg: Dict[str, Any]) -> FrameStats:
 
     # Exposure gates still apply; content and focus ones do not.
     st.is_dark = st.p95 < float(cfg.get("dark_p95_max", 40.0))
-    st.is_blown = sub_clip > float(cfg.get("blown_clip_frac", 0.35))
+    st.is_blown = st.subject_clip_hi > float(cfg.get("blown_clip_frac", 0.35))
     st.best_tile_std = st.std
     st.contrast_tiles = 1
     st.verdict = "blown" if st.is_blown else ("dark" if st.is_dark else "ok")
@@ -358,8 +360,8 @@ def analyse(
     st.is_dark = st.p95 < float(cfg.get("dark_p95_max", 40.0))
     # Blown only when clipping has spread into the subject zone -- clipped sky
     # alone is expected and acceptable for this subject matter.
-    subject_clip = float(np.count_nonzero(subject >= 250)) / max(subject.size, 1)
-    st.is_blown = subject_clip > float(cfg.get("blown_clip_frac", 0.35))
+    st.subject_clip_hi = float(np.count_nonzero(subject >= 250)) / max(subject.size, 1)
+    st.is_blown = st.subject_clip_hi > float(cfg.get("blown_clip_frac", 0.35))
     finalize(st, cfg)
     return st
 

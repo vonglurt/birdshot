@@ -310,6 +310,7 @@ class MainWindow(QMainWindow):
         )
         lv.addWidget(self.banner)
         self.preview = PreviewWidget()
+        self.preview.double_clicked.connect(self._toggle_fullscreen)
         self.histogram = HistogramWidget()
         lv.addWidget(self.preview, 1)
         lv.addWidget(self.histogram)
@@ -456,6 +457,31 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.cmb_outdoor)
         v.addLayout(row2)
 
+        row3 = QHBoxLayout()
+        row3.addWidget(QLabel("edge stripe"))
+        sp = QSpinBox()
+        sp.setRange(1, 12)
+        sp.setValue(int(self.cfg.get("outdoor_stripe_px", 3)))
+        sp.setSuffix(" px")
+        sp.valueChanged.connect(
+            lambda x: (self.cfg.__setitem__("outdoor_stripe_px", x), self._save(),
+                       setattr(self.preview, "stripe_px", x), self.preview.update()))
+        row3.addWidget(sp)
+        row3.addWidget(QLabel("sensitivity"))
+        sd = QDoubleSpinBox()
+        sd.setRange(0.2, 6.0)
+        sd.setSingleStep(0.2)
+        sd.setValue(float(self.cfg.get("outdoor_strength", 1.0)))
+        sd.valueChanged.connect(
+            lambda x: (self.cfg.__setitem__("outdoor_strength", x), self._save(),
+                       setattr(self.preview, "outdoor_strength", x),
+                       self.preview.update()))
+        row3.addWidget(sd)
+        row3.addStretch(1)
+        v.addLayout(row3)
+        self.preview.stripe_px = int(self.cfg.get("outdoor_stripe_px", 3))
+        self.preview.outdoor_strength = float(self.cfg.get("outdoor_strength", 1.0))
+
         self._mode_changed(self.cmb_shoot.currentIndex())
         return box
 
@@ -521,8 +547,10 @@ class MainWindow(QMainWindow):
         view = PreviewWidget()
         for attr in ("show_zebra", "show_peaking", "show_zones", "show_grid",
                      "show_focus_map", "show_sharpness", "outdoor",
-                     "outdoor_style", "sky_zone_frac"):
+                     "outdoor_style", "outdoor_strength", "stripe_px",
+                     "sky_zone_frac"):
             setattr(view, attr, getattr(self.preview, attr))
+        view.double_clicked.connect(self._toggle_fullscreen)
         self._fullscreen = FullscreenPreview(view, self)
         self._fullscreen.closed.connect(self._fullscreen_closed)
         self._fullscreen.showFullScreen()
@@ -1308,6 +1336,12 @@ class MainWindow(QMainWindow):
         tform.addRow("Shadow lift", self._spin("tone_lift", -0.5, 0.5, 0.05,
                                                decimals=2,
                                                on_change=lambda _: self._tone_changed()))
+        tform.addRow("Highlight knee", self._spin("tone_knee", 0.2, 0.95, 0.05,
+                                                  decimals=2,
+                                                  on_change=lambda _: self._tone_changed()))
+        tform.addRow("Shoulder", self._spin("tone_shoulder", 0.2, 6.0, 0.2,
+                                            decimals=1,
+                                            on_change=lambda _: self._tone_changed()))
         tf.addLayout(tform)
 
         live = QGroupBox("Live ISP controls (no restart)")

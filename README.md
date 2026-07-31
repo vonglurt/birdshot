@@ -191,8 +191,34 @@ error it abandons the PID and jumps straight to the answer -- this is what remov
 the "AE takes five photos" problem.
 
 **Highlight priority.** The clipping term can only ever push exposure *down*, and
-it overrides the brightness term when it fires. Clipped sky detail is
-unrecoverable; a slightly dark bird is not.
+it overrides the brightness term when it fires. It is measured on the **subject
+zone**, with the sky held to its own far looser budget (60% by default). Metering
+whole-frame clipping meant a bright sky always blew past a 2% tolerance, so the
+term fired on every frame and drove exposure down until the treeline went black
+-- the loop sat there dark and never came back.
+
+### If auto-exposure seems to stop
+
+It used to, and the cause was not the PID. The loop waited for the sensor to
+report back exactly what it had been asked for before correcting again, and the
+IMX477 never does: exposure quantises to line times (asking 2000 us yields 1986)
+and analogue gain snaps to its own steps (asking 2.10 yields 2.00). Worse, a gain
+change takes 5-7 frames to reach metadata on this board, not the 2 the docs
+imply. The wait had no escape, so ordinary quantisation could stall it forever
+-- and the one thing that could have corrected it was the loop that had stopped.
+
+Now the wait is bounded, tolerances are relative rather than absolute, and if a
+request really was clamped the controller re-syncs from whatever the sensor
+actually did (clearing the integral, which would otherwise be wound up against
+an unreachable target). Measured over 40 s: 0 stalls, 227 corrections, against
+41 stalls and 82 corrections before.
+
+"Settled" also counts a *constrained* equilibrium -- when highlight priority and
+the brightness term pull against each other, which is routine for a dark subject
+under a blown sky, the error never enters the deadband but the correction goes to
+zero. Requiring a small error rather than a small correction meant settled never
+fired in exactly the scene this camera is pointed at, which also stopped the lux
+constant ever being learned.
 
 Metering is zone-weighted, not average: the top 40% of frame is treated as sky
 and weighted at 0.15, the rest as subject at 1.0. All tunable in the Exposure tab.
@@ -260,8 +286,8 @@ One **mode dropdown** (Stills / Rapid / Timelapse / Video) drives a single START
 button, and selecting a mode opens its section. The four separate start buttons
 are gone.
 
-**Fullscreen** (button or `F11`) puts the live image on its own screen with every
-overlay intact; `Esc` or `F11` returns.
+**Fullscreen** -- the button, `F11`, or a **double-click on the image**. Every
+overlay stays live; `Esc`, `F11` or another double-click returns.
 
 ### Outdoor mode
 
@@ -269,8 +295,13 @@ For working in sunlight, where the panel washes out and a bird against bright sk
 is a low-contrast shape. It contrast-stretches the preview against its own 2nd
 and 98th percentiles, then burns the frame's gradients in as a bright outline:
 
-- **boost** -- the stretched picture with edges in yellow, which survives glare
+- **boost** -- the stretched picture with edges drawn over it
 - **edges only** -- structure on a dark field, nothing competing with it
+
+Edges are drawn as **alternating yellow and black hazard bands**, one pixel thick.
+Flat yellow disappears against a bright sky and black disappears against shadow;
+alternating them means one of the two always contrasts, whatever the edge happens
+to lie on. Band width and sensitivity are adjustable.
 
 Edge sensitivity is relative to the scene's own gradients, so a hazy view still
 shows its edges rather than going blank. Measured on a real frame, the strength

@@ -742,7 +742,11 @@ def cmd_selftest(args, cfg):
 
     def t_tone():
         from birdshot import tone
-        c = Config("/tmp/birdshot-selftest.json")
+        # Its own config file: presets share tone_lift and friends, so a value
+        # left behind by one case must not silently change the next.
+        if os.path.exists("/tmp/birdshot-selftest-tone.json"):
+            os.unlink("/tmp/birdshot-selftest-tone.json")
+        c = Config("/tmp/birdshot-selftest-tone.json")
         sx, sy = tone.stock_curve()
         # The curve the ISP actually uses must match the published HQ-cam vector.
         assert len(sx) == 33, len(sx)
@@ -755,9 +759,12 @@ def cmd_selftest(args, cfg):
         assert tone.build_tuning(c) is None
         assert tone.is_stock(c)
 
-        # Every other preset must produce a patched, monotonic 33-point curve.
+        # Every other preset must produce a patched, monotonic 33-point curve
+        # anchored at pure black and pure white -- including with a lift applied,
+        # which used to float the whole curve off zero and grey out the blacks.
         for kind in ("linear", "gamma", "contrast", "lift"):
             c["tone_curve"] = kind
+            c["tone_lift"] = 0.18 if kind == "lift" else 0.0
             xs, ys = tone.curve_from_cfg(c)
             assert len(xs) == 33 and ys[0] == 0.0 and abs(ys[-1] - 1.0) < 1e-9, kind
             assert all(ys[i] <= ys[i + 1] + 1e-9 for i in range(len(ys) - 1)), \
@@ -781,13 +788,29 @@ def cmd_selftest(args, cfg):
         _, gy = tone.curve_from_cfg(c)
         assert gy[4] > lx[4], "gamma should lift mid-tones above linear"
 
+        # Rolloff must lift a dark average AND round off the top.
+        c["tone_curve"] = "rolloff"; c["tone_lift"] = 0.18
+        c["tone_knee"] = 0.65; c["tone_shoulder"] = 2.0
+        rx, ry = tone.curve_from_cfg(c)
+        assert all(ry[i] <= ry[i + 1] + 1e-9 for i in range(len(ry) - 1)), "not monotonic"
+        assert ry[0] == 0.0 and abs(ry[-1] - 1.0) < 1e-9
+        assert tone._interp(0.05, rx, ry) > tone._interp(0.05, sx, sy) + 0.02, \
+            "rolloff should lift the dark end"
+        # Steps must shrink toward white -- that is the shoulder rounding off.
+        gaps = [ry[i + 1] - ry[i] for i in range(len(ry) - 5, len(ry) - 1)]
+        assert all(gaps[i] >= gaps[i + 1] - 1e-9 for i in range(len(gaps) - 1)), gaps
+        stock_gaps = [sy[i + 1] - sy[i] for i in range(len(sy) - 5, len(sy) - 1)]
+        assert gaps[-1] < stock_gaps[-1], "whites are not being rounded off"
+        assert tone.build_tuning(c) is not None
+
         # The LUT exists for offline use and must be monotonic 0..255.
         c["tone_curve"] = "stock"
         lut = tone.lut8(c)
         assert lut.shape == (256,) and lut[0] == 0 and lut[255] == 255
         assert all(lut[i] <= lut[i + 1] for i in range(255))
         c["tone_curve"] = "stock"; c.save()
-        return "ISP curve matches the published vector, 4 presets patch cleanly"
+        os.unlink("/tmp/birdshot-selftest-tone.json")
+        return "ISP curve verified, 5 presets anchored at black and white"
     check("tone curve", t_tone)
 
     def t_yuv():
