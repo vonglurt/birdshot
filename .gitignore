@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# macOS
+.DS_Store
+
+# Editors
+*.swp
+*~
+
+# Captured data never belongs in the repo -- sessions run to thousands of
+# 12 MP frames and are managed by the storage cascade instead.
+birdshot-data/
+*.jpg
+*.jpeg
+*.mp4
+*.h264
+index.jsonl
+session.json
+group.json
+
+# Local runtime state
+settings.json
