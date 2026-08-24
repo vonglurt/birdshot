@@ -13,4 +13,4 @@ Modules:
     gui         PyQt5 front end
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.0-rc1"

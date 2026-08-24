@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>birdshot — bird and sky capture for the Raspberry Pi HQ Camera</title>
+<meta name="description" content="Metered auto-exposure, quality gates and a tiered storage cascade for the IMX477 on a Raspberry Pi Compute Module 4. MIT licensed.">
+<link rel="canonical" href="https://birdshot.org/">
+<meta property="og:title" content="birdshot">
+<meta property="og:description" content="Bird and sky capture for the Raspberry Pi HQ Camera.">
+<meta property="og:url" content="https://birdshot.org/">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230B1017%22/><circle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22none%22 stroke=%22%23F0A63C%22 stroke-width=%222.5%22/><circle cx=%2216%22 cy=%2216%22 r=%222%22 fill=%22%23FFE3B0%22/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --night:#0B1017; --dusk:#131D29; --panel:#17222F; --slate:#2A3B50;
+  --sky:#7FA8CC; --paper:#E7EBF0; --mute:#8FA1B5;
+  --amber:#F0A63C; --hot:#FFE3B0;
+  --display:'Archivo',system-ui,sans-serif;
+  --body:'Source Serif 4',Georgia,serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --gut:clamp(1.25rem,4vw,3.5rem);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--night); color:var(--paper);
+  font-family:var(--body); font-size:clamp(1rem,.95rem + .3vw,1.125rem);
+  line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:64rem;margin:0 auto;padding:0 var(--gut)}
+a{color:var(--amber);text-underline-offset:.2em;text-decoration-thickness:1px}
+a:hover{color:var(--hot)}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:2px}
+code,kbd{font-family:var(--mono);font-size:.9em}
+
+/* ---- top bar ---- */
+.bar{
+  display:flex;gap:1rem;align-items:baseline;flex-wrap:wrap;
+  font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--mute);
+  padding:1.25rem 0;border-bottom:1px solid var(--slate);
+}
+.bar b{color:var(--paper);font-weight:500;letter-spacing:.12em}
+.bar .sp{flex:1 1 auto}
+.tag{color:var(--night);background:var(--amber);padding:.15rem .5rem;border-radius:2px;font-weight:500}
+
+/* ---- hero ---- */
+.hero{padding:clamp(3rem,9vw,6rem) 0 clamp(2rem,5vw,3rem)}
+h1{
+  font-family:var(--display);font-weight:800;
+  font-size:clamp(3rem,13vw,8.5rem);line-height:.86;letter-spacing:-.045em;
+  margin:0 0 1.25rem;color:var(--paper);
+}
+h1 .dot{color:var(--amber)}
+.lede{font-size:clamp(1.15rem,1rem + .9vw,1.6rem);line-height:1.45;max-width:34ch;margin:0 0 1.75rem;color:var(--paper)}
+.sub{color:var(--mute);max-width:56ch;margin:0 0 2rem}
+
+/* ---- the exposure ladder : signature ---- */
+.ladder-head{
+  display:flex;justify-content:space-between;align-items:baseline;gap:1rem;
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--mute);
+  padding-bottom:.6rem;border-bottom:1px solid var(--slate);margin-bottom:.35rem;
+}
+.ladder{list-style:none;margin:0 0 1.25rem;padding:0}
+.rung{
+  display:grid;grid-template-columns:4.5rem 1fr auto;
+  gap:.5rem .9rem;align-items:center;
+  padding:.3rem 0;border-bottom:1px solid rgba(42,59,80,.45);
+  animation:rise .5s cubic-bezier(.2,.7,.3,1) backwards;
+  animation-delay:calc(var(--i) * 45ms);
+}
+@keyframes rise{from{opacity:0;transform:translateY(.5rem)}to{opacity:1;transform:none}}
+.rung-dir{font-family:var(--mono);font-size:.85rem;color:var(--paper)}
+.rung-bar{display:block;height:.6rem;background:rgba(42,59,80,.35);border-radius:1px;overflow:hidden}
+.rung-bar i{
+  display:block;height:100%;width:var(--w);background:var(--c);border-radius:1px;
+  transform-origin:left;animation:grow .7s cubic-bezier(.2,.7,.3,1) backwards;
+  animation-delay:calc(var(--i) * 45ms + 80ms);
+}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.rung-desc{font-family:var(--mono);font-size:.8rem;color:var(--sky);text-align:right;white-space:nowrap}
+.rung-note{
+  grid-column:2 / -1;font-size:.82rem;color:var(--mute);font-style:italic;
+  margin-top:-.15rem;
+}
+.rung-note:empty{display:none}
+.rung:hover .rung-dir{color:var(--amber)}
+.ladder-foot{font-size:.85rem;color:var(--mute);margin:0 0 2rem}
+
+/* ---- clone ---- */
+.clone{
+  font-family:var(--mono);font-size:.85rem;background:var(--dusk);
+  border:1px solid var(--slate);border-left:3px solid var(--amber);
+  padding:.85rem 1rem;overflow-x:auto;white-space:pre;margin:0 0 .6rem;
+  color:var(--paper);border-radius:0 3px 3px 0;
+}
+.clone .c{color:var(--mute)}
+
+/* ---- sections ---- */
+section{padding:clamp(2.5rem,7vw,4.5rem) 0;border-top:1px solid var(--slate)}
+h2{
+  font-family:var(--display);font-weight:600;font-size:clamp(1.5rem,1.2rem + 1.4vw,2.25rem);
+  letter-spacing:-.02em;margin:0 0 .4rem;color:var(--paper);
+}
+.eyebrow{
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--amber);margin:0 0 .5rem;
+}
+.say{max-width:60ch;color:var(--mute);margin:0 0 1.75rem}
+.say strong{color:var(--paper);font-weight:600}
+
+/* ---- tables ---- */
+.tbl-wrap{overflow-x:auto;margin:0 0 1rem}
+table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:34rem}
+th,td{padding:.5rem .75rem;text-align:left;border-bottom:1px solid rgba(42,59,80,.5)}
+th{
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--mute);font-weight:400;
+}
+td{font-family:var(--mono);font-size:.82rem;color:var(--sky)}
+td:first-child{color:var(--paper)}
+td.hi{color:var(--amber)}
+
+/* ---- cascade ---- */
+.cascade{display:flex;flex-wrap:wrap;align-items:stretch;gap:.5rem;margin:0 0 1.25rem}
+.tier{
+  flex:1 1 9rem;background:var(--panel);border:1px solid var(--slate);
+  border-top:2px solid var(--c,var(--sky));padding:.85rem .9rem;border-radius:2px;
+}
+.tier h3{font-family:var(--mono);font-size:.78rem;font-weight:500;margin:0 0 .3rem;color:var(--paper);letter-spacing:.04em}
+.tier p{margin:0;font-size:.78rem;color:var(--mute);font-family:var(--mono)}
+.arrow{align-self:center;color:var(--slate);font-family:var(--mono);font-size:1.1rem}
+
+/* ---- pending / empty state ---- */
+.pending{
+  border:1px dashed var(--slate);background:
+    repeating-linear-gradient(135deg,transparent,transparent 9px,rgba(42,59,80,.16) 9px,rgba(42,59,80,.16) 18px);
+  padding:clamp(1.5rem,4vw,2.5rem);border-radius:3px;
+}
+.pending h3{font-family:var(--mono);font-size:.8rem;font-weight:500;letter-spacing:.06em;margin:0 0 .6rem;color:var(--amber);text-transform:uppercase}
+.pending ul{margin:.75rem 0 0;padding-left:1.1rem;color:var(--mute);font-size:.9rem}
+.pending li{margin:.3rem 0}
+.pending li b{color:var(--paper);font-weight:600;font-family:var(--mono);font-size:.85rem}
+
+/* ---- footer ---- */
+footer{border-top:1px solid var(--slate);padding:2.5rem 0 4rem;color:var(--mute);font-size:.88rem}
+.foot-grid{display:flex;flex-wrap:wrap;gap:2rem 3rem;margin-bottom:1.75rem}
+.foot-grid div{flex:1 1 13rem}
+.foot-grid h4{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--paper);margin:0 0 .5rem;font-weight:500}
+.foot-grid p{margin:0 0 .4rem}
+.warn{border-left:2px solid var(--amber);padding-left:.9rem;max-width:62ch}
+
+@media (max-width:34rem){
+  .rung{grid-template-columns:3.6rem 1fr}
+  .rung-desc{grid-column:1 / -1;text-align:left;font-size:.75rem}
+  .rung-note{grid-column:1 / -1}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="bar">
+    <b>birdshot</b>
+    <span>IMX477 · Pi CM4</span>
+    <span class="sp"></span>
+    <span class="tag">1.0.0-rc1</span>
+    <a href="https://github.com/vonglurt/birdshot">GitHub</a>
+  </div>
+</div>
+
+<header class="wrap hero">
+  <h1>birdshot<span class="dot">.</span></h1>
+  <p class="lede">Bird and sky capture for the Raspberry&nbsp;Pi HQ Camera.</p>
+  <p class="sub">An IMX477 on a Compute Module 4, driven properly — metered auto-exposure
+  that holds through a changing sky, quality gates that discard the frames you would have
+  deleted anyway, and a storage cascade that runs a session until the <em>last</em> disk
+  fills rather than the first.</p>
+
+  <div class="ladder-head"><span>The exposure ladder</span><span>19.1 s → 1/8000 s</span></div>
+  <ul class="ladder">
+      <li class="rung" style="--w:100.00%;--c:rgb(30,58,95);--i:0">
+        <span class="rung-dir">s191</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">19.1 s</span>
+        <span class="rung-note">the legacy night setting</span>
+      </li>
+      <li class="rung" style="--w:91.30%;--c:rgb(51,73,102);--i:1">
+        <span class="rung-dir">s64</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">6.4 s</span>
+        <span class="rung-note">legacy s64</span>
+      </li>
+      <li class="rung" style="--w:80.27%;--c:rgb(77,93,112);--i:2">
+        <span class="rung-dir">s16</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1.6 s</span>
+        <span class="rung-note">legacy s16</span>
+      </li>
+      <li class="rung" style="--w:69.23%;--c:rgb(103,113,121);--i:3">
+        <span class="rung-dir">s04</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/2 s (400.0 ms)</span>
+        <span class="rung-note">legacy s04</span>
+      </li>
+      <li class="rung" style="--w:58.20%;--c:rgb(129,132,131);--i:4">
+        <span class="rung-dir">s01</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/10 s (100.0 ms)</span>
+        <span class="rung-note">legacy s01</span>
+      </li>
+      <li class="rung" style="--w:49.38%;--c:rgb(150,148,138);--i:5">
+        <span class="rung-dir">ms330</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/30 s (33.0 ms)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:43.62%;--c:rgb(164,158,143);--i:6">
+        <span class="rung-dir">ms160</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/62 s (16.0 ms)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:38.10%;--c:rgb(177,168,148);--i:7">
+        <span class="rung-dir">ms80</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/125 s (8.0 ms)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:32.58%;--c:rgb(190,178,152);--i:8">
+        <span class="rung-dir">ms40</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/250 s (4.0 ms)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:27.07%;--c:rgb(203,188,157);--i:9">
+        <span class="rung-dir">ms20</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/500 s (2.0 ms)</span>
+        <span class="rung-note">default motion limit for birds</span>
+      </li>
+      <li class="rung" style="--w:21.55%;--c:rgb(216,198,162);--i:10">
+        <span class="rung-dir">ms10</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/1000 s (1.0 ms)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:16.03%;--c:rgb(229,207,167);--i:11">
+        <span class="rung-dir">us500</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/2000 s (500 µs)</span>
+        <span class="rung-note">fast wingbeat freeze</span>
+      </li>
+      <li class="rung" style="--w:10.52%;--c:rgb(242,217,171);--i:12">
+        <span class="rung-dir">us250</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/4000 s (250 µs)</span>
+        <span class="rung-note"></span>
+      </li>
+      <li class="rung" style="--w:5.00%;--c:rgb(255,227,176);--i:13">
+        <span class="rung-dir">us120</span>
+        <span class="rung-bar"><i></i></span>
+        <span class="rung-desc">1/8000 s (125 µs)</span>
+        <span class="rung-note">clipping-bright sky</span>
+      </li>
+  </ul>
+  <p class="ladder-foot">Fourteen one-click presets, and the folder each one writes into.
+  <code>s&lt;N&gt;</code> is tenths of a second, <code>ms&lt;N&gt;</code> tenths of a
+  millisecond, <code>us&lt;N&gt;</code> plain microseconds — the naming the predecessor
+  scripts used, extended downwards so bird work fits. Old night captures still sort
+  alongside new ones.</p>
+
+  <pre class="clone"><span class="c"># on the Mac</span>
+git clone https://github.com/vonglurt/birdshot
+cd birdshot &amp;&amp; make hooks
+PI_HOST=pi@raspberrypi.local ./sync.sh push</pre>
+</header>
+
+<section class="wrap">
+  <p class="eyebrow">Measured, not assumed</p>
+  <h2>What the hardware actually does</h2>
+  <p class="say">Sensor readout is not the limit — the full-resolution buffer copy and the
+  JPEG encode are, and they are memory-bandwidth bound. Every figure here was measured on
+  the target board, not read off a datasheet. <strong>RAPID</strong> strips the pipeline
+  back to metering and auto-exposure; <strong>COLLECT</strong> runs the quality gates and
+  native-resolution focus measurement as well.</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Mode</th><th>Sensor can do</th><th>COLLECT</th><th>RAPID</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td>4056×3040 native</td><td>10.8 fps</td><td>3.3</td><td class="hi">4.5</td><td>perched birds, treeline, timelapse</td></tr>
+      <tr><td>2028×1520 binned</td><td>41.7 fps</td><td>8.6</td><td class="hi">21.0</td><td>birds in flight, same field of view</td></tr>
+      <tr><td>1332×990 cropped</td><td>41.7 fps</td><td>10.4</td><td class="hi">34.8</td><td>fastest action</td></tr>
+      <tr><td>1920×1080 H.264</td><td>50 fps</td><td>—</td><td class="hi">50</td><td>video, hardware encoder</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="say">Encode threads are set to three: measured identical to six on this board,
+  and it leaves a core for the capture loop and the GUI.</p>
+</section>
+
+<section class="wrap">
+  <p class="eyebrow">Storage</p>
+  <h2>The cascade</h2>
+  <p class="say">Frames are written into bounded groups, and background workers migrate
+  whole sealed groups down a chain of tiers. Each tier is a buffer smoothing over the
+  slower one beneath it. <strong>The USB stick is the slowest storage in the system, not
+  the fastest</strong> — writing captures straight to it would stall every burst.</p>
+  <div class="cascade">
+    <div class="tier" style="--c:#7FA8CC"><h3>tmpfs</h3><p>1.9 GB · 459 MB/s</p></div>
+    <span class="arrow">→</span>
+    <div class="tier" style="--c:#C9A96B"><h3>eMMC</h3><p>16 GB · 78 MB/s</p></div>
+    <span class="arrow">→</span>
+    <div class="tier" style="--c:#F0A63C"><h3>USB 2.0</h3><p>59 GB · 12 MB/s</p></div>
+  </div>
+  <p class="say">A group leaves a tier only after it has been copied to the next
+  <em>and verified</em> — every file present, every size identical. The last tier never
+  deletes anything unless ring mode is explicitly enabled. Sealing is atomic, so a group
+  still being written is never touched, and everything is resumable: a restart picks up
+  whatever was left mid-cascade.</p>
+  <p class="say">Two things it does <strong>not</strong> do, stated plainly because they are
+  easy to assume: it does not make capture faster, and it does not raise the sustained rate
+  above the slowest tier. The upper tiers absorb bursts; over a long run the cascade can
+  only shift data as fast as the bottom tier accepts it. The GUI predicts the resulting run
+  length up front.</p>
+</section>
+
+<section class="wrap">
+  <p class="eyebrow">Screenshots</p>
+  <h2>Not yet photographed</h2>
+  <div class="pending">
+    <h3>Pending — the rig is powered down</h3>
+    <p style="margin:0;color:var(--mute)">These are the captures this page has slots for.
+    They need the Pi running with the camera attached, so they are not here yet rather than
+    mocked up. <code>1.0.0-rc1</code> is a candidate for exactly this reason.</p>
+    <ul>
+      <li><b>gui-main.png</b> — the capture tab, live preview with the on-image readout</li>
+      <li><b>gui-focus.png</b> — the focus monitor with the blur gate calibrated</li>
+      <li><b>gui-cascade.png</b> — the cascade tab mid-migration, predicted run length</li>
+      <li><b>gui-histogram.png</b> — histogram levels with black and white points set</li>
+      <li><b>rig.jpg</b> — the CM4 and the IMX477 as actually mounted</li>
+      <li><b>frame-sample.jpg</b> — one full-resolution capture, EXIF intact</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="foot-grid">
+    <div>
+      <h4>Documentation</h4>
+      <p><a href="https://github.com/vonglurt/birdshot#readme">README</a> — the reference</p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/GUIDE.md">Operating guide</a> — the tutorial</p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/lab-reports/lab-report-birdshot-publication.md">Lab report</a> — the publication audit</p>
+    </div>
+    <div>
+      <h4>Source</h4>
+      <p><a href="https://github.com/vonglurt/birdshot">github.com/vonglurt/birdshot</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/CONTRIBUTING.md">Contributing</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/SECURITY.md">Security policy</a></p>
+    </div>
+    <div>
+      <h4>Requires</h4>
+      <p>Raspberry Pi CM4, IMX477</p>
+      <p>Debian 11 · Python 3.9</p>
+      <p>picamera2 · numpy · PyQt5</p>
+    </div>
+  </div>
+  <p class="warn"><strong style="color:var(--paper)">MIT</strong> — Copyright © 2026 Paul
+  Richeson. Nothing in the repository is anyone else's code. Its dependencies are another
+  matter: <strong style="color:var(--paper)">PyQt5 is GPL-3.0 or commercial</strong>, which
+  governs shipping an image containing both, though not cloning or running this source. The
+  GPL surface is confined to the GUI, so the headless capture path is copyleft-free —
+  <a href="https://github.com/vonglurt/birdshot/blob/main/THIRD-PARTY.md">THIRD-PARTY.md</a>
+  works through it.</p>
+</footer>
+
+</body>
+</html>

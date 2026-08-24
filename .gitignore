@@ -24,3 +24,13 @@ group.json
 
 # Local runtime state
 settings.json
+
+# Byte-compiled output from `make lint`
+.audit-blobs
+
+# Screenshots are committed deliberately, one at a time, after review --
+# never by a bulk `git add`. The capture root is excluded above; this stops a
+# stray frame arriving via assets/.
+assets/**/*.jpg
+assets/**/*.jpeg
+!assets/screenshots/*.png

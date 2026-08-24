@@ -1,10 +1,22 @@
 # birdshot
 
-Bird and sky capture for a Raspberry Pi Compute Module 4 with an **IMX477 (Pi HQ
-Camera)**, replacing the old `runCam.sh` loop.
+**Bird and sky capture for the Raspberry Pi HQ Camera.**
 
-The GUI runs on the Pi's own display; captures land on the eMMC and are pulled to
-the Mac over the network.
+[birdshot.org](https://birdshot.org) · MIT · `1.0.0-rc1`
+
+An IMX477 on a Compute Module 4, driven properly: metered auto-exposure that
+holds through a changing sky, quality gates that throw away the frames you would
+have deleted anyway, and a storage cascade that lets a session run until the
+*last* disk fills rather than the first. It replaces the `runCam.sh` loop it
+grew out of, and reads that loop's folders unchanged.
+
+The GUI runs on the Pi's own display; captures land on the eMMC and are pulled
+to the Mac over the network.
+
+> **Release candidate.** `1.0.0-rc1` is the deployed build, running as
+> described. It is tagged as a candidate rather than a release because formal
+> physical testing has not been completed and the screenshots below are not yet
+> taken — see [CHANGELOG.md](CHANGELOG.md). The software itself is in use.
 
 ---
 
@@ -118,7 +130,7 @@ Mac can never pick up a half-written JPEG.
 
 ## Getting started
 
-> New to it? **[GUIDE.md](GUIDE.md)** is a full tutorial: every mode, what each
+> New to it? **[docs/GUIDE.md](docs/GUIDE.md)** is a full tutorial: every mode, what each
 > adjustable number does when you change it, worked example settings for five
 > use cases, and how to set exposure, black and white points.
 
@@ -668,19 +680,19 @@ selection, an order of magnitude faster.
 
 | File | |
 |---|---|
-| `birdshot/naming.py` | `s<N>`/`ms<N>`/`us<N>` folder naming, legacy-compatible |
-| `birdshot/config.py` | persisted settings, calibration, resume state |
-| `birdshot/analysis.py` | metering, quality gates, focus measures (numpy only, no OpenCV) |
-| `birdshot/exposure.py` | EV-space PID, lux feed-forward, shutter/gain ladder |
-| `birdshot/storage.py` | sessions, `index.jsonl`, background USB offload |
-| `birdshot/camera.py` | the capture engine (own thread, event callbacks) |
-| `birdshot/timelapse.py` | ffmpeg assembly and source selection |
-| `birdshot/autostart.py` | `autowrite.yes` detection and parsing |
-| `birdshot/cascade.py` | tiered storage: groups, migration, verification |
-| `birdshot/exif.py` | EXIF tagging as a preprocessing step |
-| `birdshot/gui/widgets.py` | accordion, fullscreen preview, blocking overlay |
-| `birdshot/tone.py` | ISP tone curve (the HQ-cam gamma) |
-| `birdshot/gui/` | PyQt5 front end, calibration wizard, focus monitor |
+| `src/birdshot/naming.py` | `s<N>`/`ms<N>`/`us<N>` folder naming, legacy-compatible |
+| `src/birdshot/config.py` | persisted settings, calibration, resume state |
+| `src/birdshot/analysis.py` | metering, quality gates, focus measures (numpy only, no OpenCV) |
+| `src/birdshot/exposure.py` | EV-space PID, lux feed-forward, shutter/gain ladder |
+| `src/birdshot/storage.py` | sessions, `index.jsonl`, background USB offload |
+| `src/birdshot/camera.py` | the capture engine (own thread, event callbacks) |
+| `src/birdshot/timelapse.py` | ffmpeg assembly and source selection |
+| `src/birdshot/autostart.py` | `autowrite.yes` detection and parsing |
+| `src/birdshot/cascade.py` | tiered storage: groups, migration, verification |
+| `src/birdshot/exif.py` | EXIF tagging as a preprocessing step |
+| `src/birdshot/gui/widgets.py` | accordion, fullscreen preview, blocking overlay |
+| `src/birdshot/tone.py` | ISP tone curve (the HQ-cam gamma) |
+| `src/birdshot/gui/` | PyQt5 front end, calibration wizard, focus monitor |
 | `bin/birdshot-gui` | GUI launcher (`--auto`, `--tab`, maximized by default) |
 | `bin/birdshot-cli` | headless control **and the selftest** |
 | `bin/birdshot-wallpaper` | desktop wallpaper monitor |
@@ -695,12 +707,29 @@ Run it after any change.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Every source file carries an
-`SPDX-License-Identifier: MIT` header.
+MIT — Copyright (c) 2026 Paul Richeson. See [LICENSE](LICENSE). Every source
+file carries an `SPDX-License-Identifier: MIT` header.
 
-The copyright line reads `Copyright (c) 2026 Paul Richeson` -- change it in `LICENSE` and
-in the file headers if you want a different name:
+**Nothing in this repository is anyone else's code.** `src/`, `bin/`, `mac/`
+and `docs/` are original work; `vendor/` — where foreign code would have to
+live — is empty by design, and [vendor/README.md](vendor/README.md) explains
+the rule that keeps it that way.
+
+birdshot's *dependencies* are another matter, and one of them is not permissive:
+**PyQt5 is GPL-3.0 or commercial.** That does not affect cloning, running or
+redistributing this source, but it does govern shipping an image or bundle
+containing both birdshot and PyQt5. The GPL surface is confined to
+`src/birdshot/gui/`, so the entire headless path is copyleft-free.
+[THIRD-PARTY.md](THIRD-PARTY.md) works through exactly what that means.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md). Signed commits, `make check` before a pull
+request, and nothing about your machine in the repository — there is a
+pre-commit hook that enforces the last one:
 
 ```bash
-grep -rl "Copyright (c) 2026 Paul Richeson" . | xargs sed -i '' 's/Copyright (c) 2026 Paul Richeson/Copyright (c) 2026 Your Name/'
+make hooks
 ```
+
+Security issues: [SECURITY.md](SECURITY.md), not the issue tracker.
