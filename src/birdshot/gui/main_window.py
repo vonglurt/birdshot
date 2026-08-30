@@ -19,11 +19,11 @@ from typing import Any, Dict, Optional
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
-    QAction, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox,
-    QSplitter, QStackedWidget, QStatusBar, QTabWidget, QTextEdit, QVBoxLayout,
-    QWidget,
+    QAction, QCheckBox, QComboBox, QCompleter, QDoubleSpinBox, QFileDialog,
+    QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider,
+    QSpinBox, QSplitter, QStackedWidget, QStatusBar, QTabWidget, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
 from .. import timelapse as tl
@@ -84,6 +84,9 @@ class MainWindow(QMainWindow):
         self._binding = False
         self._last_sharpness = 0.0
         self._rapid_t0 = time.time()
+        # Every config-bound control registers here: the settings search, the
+        # changed-from-default dots and the reset dialog all read this index.
+        self._registry = []
 
         self._build_ui()
         self.set_face(face if face in faces.FACES else faces.resolve_face(cfg))
@@ -540,6 +543,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(shoot, "Shoot")
         tabs.addTab(scene, "Scene")
         tabs.addTab(machine, "Machine")
+        self._tab_scrolls = [shoot, scene, machine]
         self._hide_redundant_buttons()
         tabs.currentChanged.connect(self._tab_changed)
         self._tabs = tabs
@@ -556,6 +560,23 @@ class MainWindow(QMainWindow):
         # The header's first _mode_changed ran before the sections existed and
         # had nothing to expand; re-run it now that they do.
         self._mode_changed(self.tuner.index())
+
+        # Provenance footer: how far this config is from stock, and the way
+        # back. The dots on individual labels come from the same comparison.
+        foot = QHBoxLayout()
+        foot.setContentsMargins(8, 0, 8, 4)
+        self.lbl_changed = QLabel("-")
+        self.lbl_changed.setStyleSheet("color:#93a3ad;font-size:11px;")
+        foot.addWidget(self.lbl_changed, 1)
+        btn_reset = QPushButton("reset...")
+        btn_reset.setFlat(True)
+        btn_reset.setCursor(Qt.PointingHandCursor)
+        btn_reset.setStyleSheet(
+            "QPushButton{border:none;background:transparent;color:#4da3cc;"
+            "font-size:11px;}QPushButton:hover{text-decoration:underline;}")
+        btn_reset.clicked.connect(self._open_reset_dialog)
+        foot.addWidget(btn_reset)
+        rail_v.addLayout(foot)
 
         right = QScrollArea()
         right.setWidgetResizable(True)
@@ -584,6 +605,8 @@ class MainWindow(QMainWindow):
         # next to the sessions it consumes. The window still owns the job.
         self.face_library.adopt_encode_page(self._tab_encode())
         self._acc["Encode photos into a movie"] = self.face_library.enc_acc
+        self._sections["Encode photos into a movie"] = (-1,
+                                                        self.face_library.enc_acc)
 
         from birdshot import __version__
         self.facebar = faces.FaceBar("v%s" % __version__)
@@ -642,6 +665,12 @@ class MainWindow(QMainWindow):
                   self.lbl_offload):
             self.status.addPermanentWidget(w)
 
+        # Everything is built: index the settings for search/provenance and
+        # grey out whatever this engine cannot actually do.
+        self._index_settings()
+        self._apply_capabilities()
+        self._refresh_provenance()
+
     def _stack(self, widgets) -> QWidget:
         """Vertical stack of sections in a scroll area."""
         inner = QWidget()
@@ -689,6 +718,14 @@ class MainWindow(QMainWindow):
         self._populate_cameras()
         # activated fires only on a user pick, never on programmatic updates.
         self.cmb_camera.activated.connect(self._switch_camera)
+
+        # ~90 settings need findability, not a fourth tab: type a fragment,
+        # pick the match, land on the control with the section opened.
+        self.ed_search = QLineEdit()
+        self.ed_search.setClearButtonEnabled(True)
+        self.ed_search.setPlaceholderText(
+            'find a setting...   "clip", "pid", "cooldown"')
+        v.addWidget(self.ed_search)
 
         self.tuner = ModeTuner(self.MODES, int(self.cfg.get("shoot_mode", 0)))
         self.tuner.changed.connect(self._mode_changed)
@@ -836,8 +873,11 @@ class MainWindow(QMainWindow):
         if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video", "birdflight"):
             self.engine.send("stop")
             return
-        key = self.MODES[max(0, min(int(self.cfg.get("shoot_mode", 0)),
-                                    len(self.MODES) - 1))][1]
+        label, key, _hint = self.MODES[max(0, min(int(self.cfg.get("shoot_mode", 0)),
+                                                  len(self.MODES) - 1))]
+        if key not in self.caps():
+            self._log("%s is not available on this camera" % label)
+            return
         {"burst": self._toggle_collect, "rapid": self._toggle_rapid,
          "timelapse": self._toggle_timelapse, "video": self._toggle_record,
          "birdflight": self._toggle_birdflight}[key]()
@@ -957,6 +997,8 @@ class MainWindow(QMainWindow):
             self._populate_cameras()
         self.engine.start()
         self.engine.send("preview")
+        # A different device can do a different set of things.
+        self._apply_capabilities()
 
     def _build_readout(self) -> QWidget:
         """One compact line. The detail lives in the HUD drawn on the image.
@@ -997,6 +1039,14 @@ class MainWindow(QMainWindow):
         if not self._binding:
             self.cfg.save()
 
+    def _register(self, key: str, widget, refresh) -> None:
+        """Index a config-bound control for search, provenance and reset.
+        ``refresh`` re-reads the config into the widget without firing its
+        handler -- what the reset dialog runs after restoring defaults."""
+        self._registry.append({"key": key, "widget": widget, "refresh": refresh,
+                               "label": None, "label_widget": None,
+                               "tab": None, "section": None, "changed": None})
+
     def _spin(self, key: str, lo, hi, step=1, decimals=None, suffix="", on_change=None):
         if decimals is None:
             w = QSpinBox()
@@ -1004,6 +1054,11 @@ class MainWindow(QMainWindow):
             w.setSingleStep(int(step))
             w.setValue(int(self.cfg[key]))
             sig = w.valueChanged
+
+            def refresh():
+                w.blockSignals(True)
+                w.setValue(int(self.cfg[key]))
+                w.blockSignals(False)
         else:
             w = QDoubleSpinBox()
             w.setRange(float(lo), float(hi))
@@ -1011,6 +1066,11 @@ class MainWindow(QMainWindow):
             w.setDecimals(decimals)
             w.setValue(float(self.cfg[key]))
             sig = w.valueChanged
+
+            def refresh():
+                w.blockSignals(True)
+                w.setValue(float(self.cfg[key]))
+                w.blockSignals(False)
         if suffix:
             w.setSuffix(suffix)
 
@@ -1021,6 +1081,7 @@ class MainWindow(QMainWindow):
                 on_change(value)
 
         sig.connect(handler)
+        self._register(key, w, refresh)
         return w
 
     def _check(self, key: str, text: str, on_change=None) -> QCheckBox:
@@ -1033,17 +1094,27 @@ class MainWindow(QMainWindow):
             if on_change:
                 on_change(bool(state))
 
+        def refresh():
+            w.blockSignals(True)
+            w.setChecked(bool(self.cfg[key]))
+            w.blockSignals(False)
+
         w.toggled.connect(handler)
+        self._register(key, w, refresh)
         return w
 
     def _combo(self, key: str, items, on_change=None) -> QComboBox:
         w = QComboBox()
         for label in items:
             w.addItem(label)
-        idx = self.cfg[key]
-        if isinstance(idx, str):
-            idx = items.index(idx) if idx in items else 0
-        w.setCurrentIndex(int(idx))
+
+        def current_index():
+            idx = self.cfg[key]
+            if isinstance(idx, str):
+                idx = items.index(idx) if idx in items else 0
+            return int(idx)
+
+        w.setCurrentIndex(current_index())
 
         def handler(i):
             self.cfg[key] = i
@@ -1051,7 +1122,13 @@ class MainWindow(QMainWindow):
             if on_change:
                 on_change(i)
 
+        def refresh():
+            w.blockSignals(True)
+            w.setCurrentIndex(current_index())
+            w.blockSignals(False)
+
         w.currentIndexChanged.connect(handler)
+        self._register(key, w, refresh)
         return w
 
     # ---- tabs --------------------------------------------------------
@@ -1095,9 +1172,9 @@ class MainWindow(QMainWindow):
         v.addLayout(form)
 
         row = QHBoxLayout()
-        btn_single = QPushButton("Single shot")
-        btn_single.clicked.connect(lambda: self.engine.send("single", save=True))
-        row.addWidget(btn_single)
+        self.btn_single = QPushButton("Single shot")
+        self.btn_single.clicked.connect(lambda: self.engine.send("single", save=True))
+        row.addWidget(self.btn_single)
         btn_preview = QPushButton("Preview only")
         btn_preview.clicked.connect(lambda: self.engine.send("preview"))
         row.addWidget(btn_preview)
@@ -1776,6 +1853,11 @@ class MainWindow(QMainWindow):
         v.addWidget(self.lbl_cal)
         self._refresh_calibration_label()
 
+        # Capability gating (see _apply_capabilities): a webcam owns its own
+        # exposure, and only the Pi's ISP applies our tone curve.
+        self._exposure_groups = [auto, man, auto_box, ladder, pid]
+        self._tone_groups = [tone_box]
+
         v.addStretch(1)
         return page
 
@@ -1852,7 +1934,14 @@ class MainWindow(QMainWindow):
             self.cfg[key] = options[i]
             self._save()
 
+        def refresh():
+            w.blockSignals(True)
+            c = self.cfg[key]
+            w.setCurrentIndex(options.index(c) if c in options else 0)
+            w.blockSignals(False)
+
         w.currentIndexChanged.connect(handler)
+        self._register(key, w, refresh)
         return w
 
     def _tab_video(self) -> QWidget:
@@ -2368,7 +2457,13 @@ class MainWindow(QMainWindow):
             self.cfg[key] = w.text()
             self._save()
 
+        def refresh():
+            w.blockSignals(True)
+            w.setText(str(self.cfg[key] or ""))
+            w.blockSignals(False)
+
         w.editingFinished.connect(done)
+        self._register(key, w, refresh)
         return w
 
     def _run_doctor(self) -> None:
@@ -2415,6 +2510,213 @@ class MainWindow(QMainWindow):
         acc = self._acc.get("Install health - doctor")
         if acc is not None:
             acc.set_expanded(True)
+
+    # ==================================================================
+    # the settings index: search, provenance, reset
+    # ==================================================================
+    _TAB_NAMES = {0: "Shoot", 1: "Scene", 2: "Machine", -1: "Library"}
+
+    def _index_settings(self) -> None:
+        """Give every registered control an address (tab, section, label) and
+        feed the whole list to the search box's completer."""
+        self._search_map = {}
+        strings = []
+        for e in self._registry:
+            w = e["widget"]
+            for title, (tab, acc) in self._sections.items():
+                if acc.body().isAncestorOf(w):
+                    e["tab"], e["section"] = tab, title
+                    for fl in acc.body().findChildren(QFormLayout):
+                        lbl = fl.labelForField(w)
+                        if lbl is not None:
+                            e["label_widget"] = lbl
+                            e["label"] = lbl.text()
+                            break
+                    break
+            if not e["label"]:
+                e["label"] = w.text() if isinstance(w, QCheckBox) else e["key"]
+            if e["label_widget"] is None and isinstance(w, QCheckBox):
+                e["label_widget"] = w   # a checkbox carries its own label
+            entry = "%s   [%s > %s]" % (
+                e["label"], self._TAB_NAMES.get(e["tab"], "?"),
+                (e["section"] or "?").split(" - ")[0].strip())
+            base, n = entry, 2
+            while entry in self._search_map:
+                entry = "%s (%d)" % (base, n)
+                n += 1
+            self._search_map[entry] = e
+            strings.append(entry)
+        comp = QCompleter(sorted(strings), self)
+        comp.setCaseSensitivity(Qt.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchContains)
+        comp.setMaxVisibleItems(14)
+        self.ed_search.setCompleter(comp)
+        comp.activated.connect(self._search_picked)
+
+    def _search_picked(self, text: str) -> None:
+        e = self._search_map.get(text)
+        if e is None:
+            return
+        QTimer.singleShot(0, self.ed_search.clear)
+        tab = e["tab"]
+        if tab == -1:
+            self.set_face("library")
+            self.face_library.enc_acc.set_expanded(True)
+        else:
+            self.set_face("bench")
+            if tab is not None:
+                self._tabs.setCurrentIndex(tab)
+            acc = self._acc.get(e["section"])
+            if acc is not None:
+                acc.set_expanded(True)
+        w = e["widget"]
+
+        def land():
+            if tab is not None and 0 <= tab < len(self._tab_scrolls):
+                self._tab_scrolls[tab].ensureWidgetVisible(w, 50, 120)
+            old = w.styleSheet()
+            w.setStyleSheet(old + ";border:1px solid #e0a828;")
+            QTimer.singleShot(1600, lambda: w.setStyleSheet(old))
+
+        QTimer.singleShot(60, land)
+
+    def _refresh_provenance(self) -> None:
+        """Amber-dot every control whose value differs from DEFAULTS, and say
+        how far this config is from stock. Cached per row; cheap at 1 Hz."""
+        from ..config import DEFAULTS
+        changed_keys = set()
+        for e in self._registry:
+            key = e["key"]
+            if key not in DEFAULTS:
+                continue
+            now = self.cfg.get(key) != DEFAULTS[key]
+            if now:
+                changed_keys.add(key)
+            if now == e["changed"]:
+                continue
+            e["changed"] = now
+            lw = e["label_widget"]
+            if lw is None:
+                continue
+            lw.setStyleSheet("color:#e0a828;" if now else "")
+            lw.setToolTip("changed from default (%r)" % (DEFAULTS[key],)
+                          if now else "")
+        n = len(changed_keys)
+        if hasattr(self, "lbl_changed"):
+            self.lbl_changed.setText(
+                "stock configuration" if not n
+                else "%d setting%s differ%s from defaults"
+                % (n, "s" if n != 1 else "", "" if n != 1 else "s"))
+
+    def _open_reset_dialog(self) -> None:
+        import copy as _copy
+
+        from PyQt5.QtWidgets import (
+            QDialog, QDialogButtonBox, QListWidget as _QList,
+            QVBoxLayout as _QV,
+        )
+
+        from ..config import DEFAULTS
+
+        changed = {}
+        for e in self._registry:
+            k = e["key"]
+            if k in DEFAULTS and self.cfg.get(k) != DEFAULTS[k]:
+                changed.setdefault(k, e["label"] or k)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Settings changed from defaults")
+        v = _QV(dlg)
+        lst = _QList()
+        if changed:
+            for k in sorted(changed):
+                lst.addItem("%s  --  %s\n      now %r,  default %r"
+                            % (k, changed[k], self.cfg.get(k), DEFAULTS[k]))
+        else:
+            lst.addItem("stock configuration - nothing to reset")
+        v.addWidget(lst)
+        bb = QDialogButtonBox()
+        btn = bb.addButton("Reset all to defaults",
+                           QDialogButtonBox.DestructiveRole)
+        btn.setEnabled(bool(changed))
+        bb.addButton(QDialogButtonBox.Close)
+        bb.rejected.connect(dlg.reject)
+
+        def do_reset():
+            for k in changed:
+                self.cfg[k] = _copy.deepcopy(DEFAULTS[k])
+            self.cfg.save()
+            for e in self._registry:
+                e["refresh"]()
+            self._refresh_provenance()
+            self._log("restored %d setting(s) to defaults - some apply on the "
+                      "next mode start or restart" % len(changed))
+            dlg.accept()
+
+        btn.clicked.connect(do_reset)
+        v.addWidget(bb)
+        dlg.resize(560, 420)
+        dlg.exec_()
+
+    # ==================================================================
+    # capability gating: offer only what this engine can actually do
+    # ==================================================================
+    def _apply_capabilities(self) -> None:
+        caps = self.caps()
+        try:
+            cam = self._cameras[self.cmb_camera.currentIndex()]["model"]
+        except (AttributeError, IndexError):
+            cam = "this camera"
+
+        avail = {}
+        for i, (label, key, _hint) in enumerate(self.MODES):
+            avail[i] = (None if key in caps
+                        else "%s is not available on %s" % (label, cam))
+        for tuner in (self.tuner,
+                      getattr(self, "face_field", None) and self.face_field.tuner,
+                      getattr(self, "face_camera", None) and self.face_camera.tuner):
+            if tuner:
+                tuner.set_available(avail)
+
+        gates = {
+            "Rapid - fastest, flat filenames": "rapid",
+            "Video": "video",
+            "Bird Flight - auto-take, sharp against sky": "birdflight",
+            "Cascade - tiers, RAM buffer, flush": "cascade",
+        }
+        for title, cap in gates.items():
+            acc = self._acc.get(title)
+            if acc is not None:
+                acc.set_gated(None if cap in caps
+                              else "not available on %s" % cam)
+
+        for grp in getattr(self, "_exposure_groups", []):
+            on = "exposure" in caps
+            grp.setEnabled(on)
+            grp.setToolTip("" if on else
+                           "%s owns its own exposure - these have no effect "
+                           "here" % cam)
+        for grp in getattr(self, "_tone_groups", []):
+            on = "isp_tone" in caps
+            grp.setEnabled(on)
+            grp.setToolTip("" if on else
+                           "the tone curve is applied by the Pi camera's ISP; "
+                           "%s does not run it" % cam)
+        if hasattr(self, "btn_single"):
+            self.btn_single.setEnabled("single" in caps)
+            self.btn_single.setToolTip(
+                "" if "single" in caps else
+                "single-frame capture needs the Pi camera - the Camera face's "
+                "shutter takes a burst of one here")
+
+        # Never leave the dial parked on a mode this camera cannot run.
+        cur = int(self.cfg.get("shoot_mode", 0))
+        if avail.get(cur):
+            for i in range(len(self.MODES)):
+                if avail[i] is None:
+                    self.tuner.set_index(i)
+                    break
+        self._refresh_go_button()
 
     # ==================================================================
     # actions
@@ -2635,6 +2937,7 @@ class MainWindow(QMainWindow):
             "on" if self.cfg["exif_enabled"] else "off",
             (" - %s" % self.cfg["exif_artist"]) if self.cfg["exif_artist"]
             else ", no artist set"))
+        self._refresh_provenance()
 
     def _refresh_status(self) -> None:
         self._check_space()

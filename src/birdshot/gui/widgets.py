@@ -86,16 +86,59 @@ class Accordion(QWidget):
         self._body_layout.addLayout(lay)
 
     def set_summary(self, text: str) -> None:
-        """One-line state shown while collapsed."""
+        """One-line state shown while collapsed. A gated section keeps its
+        reason line instead -- state a control cannot reach is not state."""
+        if getattr(self, "_gate_reason", None):
+            return
         self._summary.setText(text)
         self._summary.setVisible(not self._button.isChecked() and bool(text))
 
+    def set_gated(self, reason: Optional[str]) -> None:
+        """Grey the section out, with the reason -- never hide it.
+
+        The backend split means the same window drives an IMX477, a webcam
+        and the synthetic scene; a control that could only ever answer with
+        an error event is shown disabled and says why (see backends).
+        """
+        self._gate_reason = reason or None
+        self._body.setEnabled(not reason)
+        if reason:
+            if self._button.isChecked():
+                self.set_expanded(False)
+            self._button.setStyleSheet(
+                "QToolButton{border:none;border-left:4px solid #39414c;"
+                "background:#20252b;color:#6a7480;font-weight:700;font-size:14px;"
+                "padding:8px 10px;text-align:left;border-radius:4px;}"
+            )
+            self._summary.setText(reason)
+            self._summary.setStyleSheet(
+                "color:#8a7440;font-size:11px;padding:2px 0 4px 16px;")
+            self._summary.setVisible(True)
+        else:
+            self._button.setStyleSheet(
+                "QToolButton{border:none;border-left:4px solid #2f6f8f;"
+                "background:#25303a;color:#cfe3ef;font-weight:700;font-size:14px;"
+                "padding:8px 10px;text-align:left;border-radius:4px;}"
+                "QToolButton:hover{background:#31414f;color:#eaf5fb;"
+                "border-left:4px solid #4da3cc;}"
+                "QToolButton:checked{background:#2f6f8f;color:#ffffff;"
+                "border-left:4px solid #7fd0f0;}"
+            )
+            self._summary.setStyleSheet(
+                "color:#93a3ad;font-size:11px;padding:2px 0 4px 16px;")
+
     def set_expanded(self, on: bool) -> None:
+        if on and getattr(self, "_gate_reason", None):
+            return   # nothing usable inside; the summary says why
         self._button.setChecked(on)
         self._on_click(on)
 
     def is_expanded(self) -> bool:
         return self._button.isChecked()
+
+    def body(self) -> QFrame:
+        """The content frame, for ancestry checks (the settings index)."""
+        return self._body
 
 
 class FullscreenPreview(QWidget):
@@ -253,8 +296,20 @@ class ModeTuner(QWidget):
                    "border:1px solid #39414c;")
                 + "}"
                 "QToolButton:hover{background:%s;color:#eaf5fb;}"
+                "QToolButton:disabled{background:#1d2126;color:#4a545e;"
+                "border:1px dashed #333a44;}"
                 % ("#25904a" if on else "#2d3540")
             )
+
+    def set_available(self, avail) -> None:
+        """Per-mode gate: ``avail[i]`` is None when mode i works here, else
+        the reason it does not (shown as the tooltip on the greyed button)."""
+        self._avail = dict(avail or {})
+        for i, b in enumerate(self._buttons):
+            reason = self._avail.get(i)
+            b.setEnabled(reason is None)
+            b.setToolTip(reason or "")
+        self._restyle()
 
     def index(self) -> int:
         return self._index
@@ -268,4 +323,11 @@ class ModeTuner(QWidget):
         self.changed.emit(i)
 
     def step(self, delta: int) -> None:
-        self.set_index((self._index + delta) % len(self.modes))
+        """Step to the next mode this camera can actually run."""
+        avail = getattr(self, "_avail", {})
+        i = self._index
+        for _ in range(len(self.modes)):
+            i = (i + delta) % len(self.modes)
+            if avail.get(i) is None:
+                break
+        self.set_index(i)
