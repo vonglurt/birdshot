@@ -65,6 +65,10 @@ class PreviewWidget(QWidget):
         self._fbest = None
         self._fpeak = 0.0
         self._fpeak_hold = 0.0
+        # Bird Flight's detection, drawn on the image: (bbox, label, green,
+        # expiry). bbox is in the luma plane's coordinates.
+        self._bird = None
+        self._y_dims = None
 
     # ------------------------------------------------------------------
     def set_banner(self, text: str) -> None:
@@ -95,6 +99,15 @@ class PreviewWidget(QWidget):
         self._fpeak = float(peak or 0.0)
         self._fpeak_hold = max(self._fpeak_hold * 0.99, self._fpeak)
 
+    def set_bird(self, bbox, label: str, take: bool = False,
+                 ttl: float = 1.6) -> None:
+        """Show Bird Flight's subject box for a moment. ``bbox`` is
+        (x0, y0, x1, y1) in the luma plane the detector judged."""
+        import time as _time
+        self._bird = (tuple(bbox), label, bool(take),
+                      _time.monotonic() + ttl) if bbox else None
+        self.update()
+
     def reset_focus_peak(self) -> None:
         self._fpeak_hold = self._fpeak
 
@@ -105,6 +118,8 @@ class PreviewWidget(QWidget):
             return
         out = np.ascontiguousarray(rgb.copy())
         h, w = out.shape[:2]
+        if y is not None and y.size:
+            self._y_dims = y.shape[:2]   # the detector's coordinate space
 
         if self.outdoor:
             out = self._outdoor(out)
@@ -257,6 +272,8 @@ class PreviewWidget(QWidget):
             self._paint_hud(painter, rect)
         if self._hud.get("countdown") is not None:
             self._paint_countdown(painter, rect)
+        if self._bird is not None:
+            self._paint_bird(painter, rect)
 
         if self.outdoor:
             painter.setPen(QPen(QColor(255, 230, 40), 2))
@@ -316,6 +333,35 @@ class PreviewWidget(QWidget):
         painter.setFont(QFont("DejaVu Sans", 10, QFont.Bold))
         painter.setPen(colour.get(verdict.lower(), QColor(200, 200, 200)))
         painter.drawText(x + 9, y + 55, verdict.upper())
+        painter.restore()
+
+    def _paint_bird(self, painter: QPainter, rect: QRect) -> None:
+        """Bird Flight's subject, boxed where the detector saw it."""
+        import time as _time
+        bbox, label, take, expires = self._bird
+        if _time.monotonic() >= expires:
+            self._bird = None
+            return
+        src_h, src_w = self._y_dims or (480, 640)
+        sx, sy = rect.width() / float(src_w), rect.height() / float(src_h)
+        x0 = rect.left() + int(bbox[0] * sx)
+        y0 = rect.top() + int(bbox[1] * sy)
+        x1 = rect.left() + int(bbox[2] * sx)
+        y1 = rect.top() + int(bbox[3] * sy)
+        pad = 6
+        color = QColor(127, 227, 162) if take else QColor(127, 208, 240)
+        painter.save()
+        painter.setPen(QPen(color, 2))
+        painter.drawRect(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad,
+                         (y1 - y0) + 2 * pad)
+        painter.setFont(QFont("DejaVu Sans Mono", 10, QFont.Bold))
+        fm = painter.fontMetrics()
+        tw = (fm.width(label) if hasattr(fm, "width")
+              else fm.horizontalAdvance(label)) + 12
+        ty = max(rect.top() + 2, y0 - pad - 22)
+        painter.fillRect(x0 - pad, ty, tw, 18, QColor(0, 0, 0, 165))
+        painter.setPen(color)
+        painter.drawText(x0 - pad + 6, ty + 13, label)
         painter.restore()
 
     def _paint_countdown(self, painter: QPainter, rect: QRect) -> None:

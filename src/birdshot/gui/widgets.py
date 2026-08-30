@@ -199,10 +199,11 @@ class ModeTuner(QWidget):
 
     changed = pyqtSignal(int)
 
-    def __init__(self, modes, current: int = 0, parent=None):
+    def __init__(self, modes, current: int = 0, parent=None, font_px: int = 14):
         super().__init__(parent)
         self.modes = list(modes)
         self._index = max(0, min(int(current), len(self.modes) - 1))
+        self._font_px = int(font_px)   # narrow rails ask for a smaller face
         self._buttons = []
 
         row = QHBoxLayout(self)
@@ -243,7 +244,8 @@ class ModeTuner(QWidget):
             on = i == self._index
             b.setChecked(on)
             b.setStyleSheet(
-                "QToolButton{border-radius:5px;font-size:14px;padding:6px 4px;"
+                "QToolButton{border-radius:5px;font-size:%dpx;padding:6px 4px;"
+                % self._font_px
                 + ("background:#1f7a3f;color:#ffffff;font-weight:800;"
                    "border:2px solid #7fe3a2;"
                    if on else

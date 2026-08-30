@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -20,14 +21,16 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QAction, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox, QSplitter,
-    QStatusBar, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox,
+    QSplitter, QStackedWidget, QStatusBar, QTabWidget, QTextEdit, QVBoxLayout,
+    QWidget,
 )
 
 from .. import timelapse as tl
 from ..camera import available_ram_mb
 from ..config import CAPTURE_MODES, VIDEO_MODES
 from ..naming import PRESET_SHUTTERS_US, describe_shutter, shutter_dir
+from . import faces
 from .calibrate import CalibrationDialog
 from .focus_monitor import FocusMonitor
 from .preview import HistogramWidget, PreviewWidget, ToneCurveWidget
@@ -55,13 +58,14 @@ class EngineBridge(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, cfg, storage, engine_factory, auto=None):
+    def __init__(self, cfg, storage, engine_factory, auto=None, face=None):
         super().__init__()
         self.cfg = cfg
         self.storage = storage
         self.auto = auto
-        self.setWindowTitle("birdshot - IMX477 bird capture")
+        self.setWindowTitle("birdshot")
         self.resize(1400, 860)
+        self._camera_combos = []
 
         self.bridge = EngineBridge()
         self.bridge.event.connect(self._on_event)
@@ -82,6 +86,7 @@ class MainWindow(QMainWindow):
         self._rapid_t0 = time.time()
 
         self._build_ui()
+        self.set_face(face if face in faces.FACES else faces.resolve_face(cfg))
         self.engine.start()
         self.engine.send("preview")
 
@@ -106,6 +111,70 @@ class MainWindow(QMainWindow):
                 self._tabs.setCurrentIndex(i)
                 return True
         return False
+
+    # ------------------------------------------------------------------
+    # faces (see gui/faces.py): one window, four faces over one engine
+    # ------------------------------------------------------------------
+    def set_face(self, name: str) -> None:
+        if name not in faces.FACES:
+            name = "bench"
+        leaving = getattr(self, "_face", None)
+        self._face = name
+        self._stack.setCurrentIndex(faces.FACES.index(name))
+        self.facebar.set_active(name)
+        # The Camera face is a plain camera app: no HUD, no metering zones,
+        # no zebras. Stash the operator's overlay state and hand it back.
+        overlay_keys = ("show_hud", "show_zones", "show_zebra", "show_peaking",
+                        "show_focus_map", "show_sharpness")
+        if name == "camera" and leaving != "camera":
+            self._overlay_stash = {k: getattr(self.preview, k)
+                                   for k in overlay_keys}
+            for k in overlay_keys:
+                setattr(self.preview, k, False)
+        elif leaving == "camera" and name != "camera" \
+                and getattr(self, "_overlay_stash", None):
+            for k, v in self._overlay_stash.items():
+                setattr(self.preview, k, v)
+            self._overlay_stash = None
+        # The one live preview moves into whichever face is showing; Library
+        # has no preview, so the widget just stays parked on the hidden page.
+        if name == "bench":
+            self.preview.setParent(None)
+            self._bench_preview_layout.insertWidget(1, self.preview, 1)
+            self.preview.setVisible(True)
+        elif name == "camera":
+            self.preview.setParent(None)
+            self.face_camera.preview_slot.insertWidget(0, self.preview, 1)
+            self.preview.setVisible(True)
+        elif name == "field":
+            self.preview.setParent(None)
+            self.face_field.preview_slot.insertWidget(0, self.preview, 1)
+            self.preview.setVisible(True)
+        elif name == "library":
+            self.face_library.refresh()
+            self._refresh_sources()
+        self._refresh_go_button()
+
+    def caps(self) -> frozenset:
+        """What the current engine can actually do (backends docstring)."""
+        from birdshot import backends
+        return backends.engine_capabilities(self.engine)
+
+    def go_clicked(self) -> None:
+        self._go_clicked()
+
+    def log(self, msg: str) -> None:
+        self._log(msg)
+
+    def open_path(self, path: str) -> None:
+        """Open a file or folder in the desktop's own viewer."""
+        if not path:
+            return
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        try:
+            subprocess.Popen([opener, path])
+        except OSError as exc:
+            self._log("open failed: %s" % exc)
 
     # ------------------------------------------------------------------
     def _begin_auto(self) -> None:
@@ -274,6 +343,8 @@ class MainWindow(QMainWindow):
             self._focus.handle_preview(payload)
 
     def _on_frame(self, payload: Dict[str, Any]) -> None:
+        if hasattr(self, "face_camera"):
+            self.face_camera.on_frame(payload)
         stats = payload.get("stats")
         if stats is not None:
             self._counts[stats.verdict] = self._counts.get(stats.verdict, 0) + 1
@@ -312,6 +383,7 @@ class MainWindow(QMainWindow):
                                    else "Start timelapse")
         self.btn_record.setChecked(state == "video")
         self.btn_record.setText("Stop recording" if state == "video" else "Record video")
+        self._refresh_go_button()
 
     def _on_session(self, payload: Dict[str, Any]) -> None:
         self._log("session %s closed: %d frames, %.0f MB, %s"
@@ -369,6 +441,9 @@ class MainWindow(QMainWindow):
         lv.setSpacing(3)
         lv.addWidget(self.preview, 1)
         lv.addWidget(self.histogram)
+        # The preview is a single widget shared by every face; this layout is
+        # where it comes home to when Bench is showing (see set_face).
+        self._bench_preview_layout = lv
 
         lrow = QHBoxLayout()
         lrow.setContentsMargins(6, 0, 6, 0)
@@ -461,7 +536,33 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 0)
         splitter.setCollapsible(1, True)
 
-        self.setCentralWidget(splitter)
+        # ---- the face shell ------------------------------------------
+        # Bench is this splitter; the other three faces are built in
+        # faces.py over the same engine, preview and config.
+        self.face_camera = faces.CameraFace(self)
+        self.face_field = faces.FieldFace(self)
+        self.face_library = faces.LibraryFace(self)
+        self._camera_combos.append(self.face_camera.cmb_camera)
+        self.face_camera.cmb_camera.activated.connect(self._switch_camera)
+        self._populate_cameras()
+
+        from birdshot import __version__
+        self.facebar = faces.FaceBar("v%s" % __version__)
+        self.facebar.face_picked.connect(self.set_face)
+
+        self._stack = QStackedWidget()
+        for page in (self.face_camera, self.face_field, splitter,
+                     self.face_library):
+            self._stack.addWidget(page)
+
+        central = QWidget()
+        shell = QVBoxLayout(central)
+        shell.setContentsMargins(0, 0, 0, 0)
+        shell.setSpacing(0)
+        shell.addWidget(self.facebar)
+        shell.addWidget(self._stack, 1)
+        self.setCentralWidget(central)
+        self._face = "bench"
 
         self.overlay = BlockingOverlay(self)
         self.overlay.setGeometry(self.rect())
@@ -474,6 +575,11 @@ class MainWindow(QMainWindow):
             a = QAction(self)
             a.setShortcut(key)
             a.triggered.connect(lambda _c=False, d=delta: self._step_mode(d))
+            self.addAction(a)
+        for i, name in enumerate(faces.FACES):
+            a = QAction(self)
+            a.setShortcut("Ctrl+%d" % (i + 1))
+            a.triggered.connect(lambda _c=False, n=name: self.set_face(n))
             self.addAction(a)
 
         act_esc = QAction(self)
@@ -532,6 +638,7 @@ class MainWindow(QMainWindow):
         btn_rescan.clicked.connect(self._populate_cameras)
         rowc.addWidget(btn_rescan)
         v.addLayout(rowc)
+        self._camera_combos.append(self.cmb_camera)
         self._populate_cameras()
         # activated fires only on a user pick, never on programmatic updates.
         self.cmb_camera.activated.connect(self._switch_camera)
@@ -562,9 +669,7 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.chk_outdoor)
         self.cmb_outdoor = QComboBox()
         self.cmb_outdoor.addItems(["boost", "edges only"])
-        self.cmb_outdoor.currentIndexChanged.connect(
-            lambda i: (setattr(self.preview, "outdoor_style",
-                               "edges" if i else "boost"), self.preview.update()))
+        self.cmb_outdoor.currentIndexChanged.connect(self._outdoor_style_changed)
         row2.addWidget(self.cmb_outdoor)
         v.addLayout(row2)
 
@@ -643,6 +748,10 @@ class MainWindow(QMainWindow):
         self._save()
         label, _key, hint = self.MODES[idx]
         self.lbl_mode_hint.setText(hint)
+        for face in (getattr(self, "face_field", None),
+                     getattr(self, "face_camera", None)):
+            if face is not None:
+                face.sync_mode(idx)
         # Open the matching section so its settings are right there.
         for title, acc in self._acc.items():
             if title.lower().startswith(label.lower()):
@@ -667,6 +776,10 @@ class MainWindow(QMainWindow):
         self.btn_go.setStyleSheet(
             "QPushButton{font-size:18px;font-weight:700;border-radius:8px;"
             "background:%s;color:white;}" % ("#a03020" if running else "#1f7a3f"))
+        for face in (getattr(self, "face_field", None),
+                     getattr(self, "face_camera", None)):
+            if face is not None:
+                face.update_go(running, state, label)
 
     def _go_clicked(self) -> None:
         if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video", "birdflight"):
@@ -678,12 +791,20 @@ class MainWindow(QMainWindow):
          "timelapse": self._toggle_timelapse, "video": self._toggle_record,
          "birdflight": self._toggle_birdflight}[key]()
 
+    def _outdoor_style_changed(self, i: int) -> None:
+        self.preview.outdoor_style = "edges" if i else "boost"
+        if hasattr(self, "face_field"):
+            self.face_field.set_outdoor(self.chk_outdoor.isChecked(), i)
+        self.preview.update()
+
     def _outdoor_toggled(self, on: bool) -> None:
         self.preview.outdoor = on
         self.cfg["outdoor_mode"] = bool(on)
         self._save()
         if self._fullscreen is not None:
             self._fullscreen.view.outdoor = on
+        if hasattr(self, "face_field"):
+            self.face_field.set_outdoor(on, self.cmb_outdoor.currentIndex())
         self.preview.update()
 
     def _set_all_overlays(self, on: bool) -> None:
@@ -735,17 +856,22 @@ class MainWindow(QMainWindow):
         from birdshot import backends
         self._cameras = backends.list_cameras()
         current = backends.resolve_choice(self.cfg)
-        self.cmb_camera.blockSignals(True)
-        self.cmb_camera.clear()
         selected = len(self._cameras) - 1        # synthetic is always last
+        labels = []
         for i, cam in enumerate(self._cameras):
-            label = (cam["model"] if cam["backend"] == "synthetic"
-                     else "%s  (%s)" % (cam["model"], cam["backend"]))
-            self.cmb_camera.addItem(label)
+            labels.append(cam["model"] if cam["backend"] == "synthetic"
+                          else "%s  (%s)" % (cam["model"], cam["backend"]))
             if (cam["backend"], cam["index"]) == current:
                 selected = i
-        self.cmb_camera.setCurrentIndex(selected)
-        self.cmb_camera.blockSignals(False)
+        # Every face's picker shows the same list and the same selection.
+        for combo in self._camera_combos:
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(labels)
+            combo.setCurrentIndex(selected)
+            combo.blockSignals(False)
+        if hasattr(self, "face_field"):
+            self.face_field.set_camera_label(labels[selected])
 
     def _switch_camera(self, i: int) -> None:
         """Tear the engine down and rebuild it on the picked device."""
@@ -2157,6 +2283,13 @@ class MainWindow(QMainWindow):
 
     def _on_bird(self, payload: Dict[str, Any]) -> None:
         s = payload.get("sighting") or {}
+        if s.get("bbox"):
+            self.preview.set_bird(
+                s["bbox"], "sharp %.1f · %.2f%%"
+                % (s.get("sharpness", 0.0), 100.0 * s.get("area_frac", 0.0)),
+                take=payload.get("phase") == "take")
+        if hasattr(self, "face_field"):
+            self.face_field.on_bird(payload)
         if payload.get("phase") == "take":
             msg = ("TAKE #%d  sharp %.1f, %.2f%% of frame"
                    % (payload.get("take_n", 0), s.get("sharpness", 0.0),
@@ -2191,10 +2324,7 @@ class MainWindow(QMainWindow):
         self.lbl_auto_state.setText(text)
 
     def _open_folder(self) -> None:
-        try:
-            subprocess.Popen(["xdg-open", self.cfg["data_root"]])
-        except OSError as exc:
-            self._log("open failed: %s" % exc)
+        self.open_path(self.cfg["data_root"])
 
     def _offer_calibration(self) -> None:
         reply = QMessageBox.question(
@@ -2369,6 +2499,15 @@ class MainWindow(QMainWindow):
         self.lbl_offload_detail.setText(str(st.get("last") or "-"))
         if hasattr(self, "tier_rows") and self.storage.cascade is not None:
             self._refresh_cascade()
+        if hasattr(self, "face_field"):
+            sess = self.storage.session
+            cs = self.storage.cascade_status()
+            self.face_field.refresh_status(
+                "session %s · %d frames" % (os.path.basename(sess.path),
+                                            self._session_frames)
+                if sess else "no session",
+                "free %.1f GB · %s" % (free / 1024.0, text),
+                cs["tiers"] if cs else None)
         if hasattr(self, "lbl_counts2"):
             self.lbl_counts2.setText(
                 "ok %d | dark %d | blown %d | empty %d  (%d frames, %.0f MB)"

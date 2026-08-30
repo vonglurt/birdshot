@@ -13,6 +13,43 @@ import os
 import sys
 
 
+def _apply_dark_palette(app) -> None:
+    """Unify the chrome on the palette the custom controls already use.
+
+    The accordion bars, mode tuner, HUD and preview were always dark slate
+    and steel; Fusion's stock grey around them made the window read as two
+    programs. This is those same hex values, applied to everything.
+    """
+    from PyQt5.QtGui import QColor, QPalette
+
+    p = QPalette()
+    c = QColor
+    p.setColor(QPalette.Window, c("#1b1f24"))
+    p.setColor(QPalette.WindowText, c("#cfe3ef"))
+    p.setColor(QPalette.Base, c("#232830"))
+    p.setColor(QPalette.AlternateBase, c("#20252b"))
+    p.setColor(QPalette.Text, c("#cfe3ef"))
+    p.setColor(QPalette.Button, c("#232830"))
+    p.setColor(QPalette.ButtonText, c("#cfe3ef"))
+    p.setColor(QPalette.BrightText, c("#ffffff"))
+    p.setColor(QPalette.Link, c("#4da3cc"))
+    p.setColor(QPalette.Highlight, c("#2f6f8f"))
+    p.setColor(QPalette.HighlightedText, c("#ffffff"))
+    p.setColor(QPalette.ToolTipBase, c("#25303a"))
+    p.setColor(QPalette.ToolTipText, c("#cfe3ef"))
+    try:
+        p.setColor(QPalette.PlaceholderText, c("#7a8791"))
+    except AttributeError:   # Qt < 5.12 on the older Pi image
+        pass
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        p.setColor(QPalette.Disabled, role, c("#616b76"))
+    p.setColor(QPalette.Disabled, QPalette.Highlight, c("#39414c"))
+    p.setColor(QPalette.Disabled, QPalette.HighlightedText, c("#93a3ad"))
+    app.setPalette(p)
+    app.setStyleSheet(
+        "QToolTip{background:#25303a;color:#cfe3ef;border:1px solid #39414c;}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="birdshot capture GUI")
     ap.add_argument("--config", help="path to settings.json")
@@ -21,7 +58,12 @@ def main() -> int:
                     help="X display to open on (default :0)")
     ap.add_argument("--auto", action="store_true",
                     help="honour an autowrite.yes USB stick and start capturing")
-    ap.add_argument("--tab", help="open on a named tab, e.g. Focus or Rapid")
+    ap.add_argument("--tab", help="open on a named tab, e.g. Scene or Machine")
+    ap.add_argument("--face",
+                    choices=["auto", "camera", "field", "bench", "library"],
+                    default="auto",
+                    help="which face to open on (default: config ui_face, "
+                         "then auto-resolve per install)")
     ap.add_argument("--no-maximize", action="store_true",
                     help="open windowed instead of filling the screen")
     ap.add_argument("--fullscreen", action="store_true",
@@ -70,11 +112,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("birdshot")
     app.setStyle("Fusion")
+    _apply_dark_palette(app)
 
     window = MainWindow(cfg, storage,
                         lambda on_event: backends.create_engine(
                             cfg, storage, on_event),
-                        auto=auto_summary)
+                        auto=auto_summary,
+                        face=None if args.face == "auto" else args.face)
     if args.tab and not window.select_tab(args.tab):
         print("no tab named %r" % args.tab, flush=True)
 
