@@ -6,6 +6,19 @@ Notable changes to birdshot. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). The version string lives in
 `src/birdshot/__init__.py` as `__version__`.
 
+## [Unreleased]
+
+- Adopted a release system: semver + a codename per minor version, signed
+  tags, a GitHub Release (pre-release for `-rcN`) per tag. `1.0.x` is
+  retroactively codenamed **Cow Tools** and designated the alpha prototype /
+  proof-of-concept deployment (Debian 11, CM4 on the I/O breakout board, HQ
+  Camera). `1.1.x` will be **The Chickens Are Restless**.
+- Added `docs/ROADMAP.md` — the backlog for `v1.1.0-rc1`: camera selection
+  dropdown, cross-platform capture backends (run on the Mac, deploy to the
+  Pi), copal-driven install into `~/code/`, `birdshot-cli doctor`, the
+  responsiveness/CPU work, and the **Capture Bird Flight** auto-take mode.
+- Added `docs/BIRDS-VS-COWS.md`. It is release-critical. Do not ask why.
+
 ## [1.0.0-rc1] — 2026-08-23 — first public candidate
 
 The project became public. It had been developed privately since 2026-07-31
