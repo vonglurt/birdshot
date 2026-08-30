@@ -32,6 +32,10 @@ REQUEST_W, REQUEST_H = 1280, 720
 class OpenCVEngine(SyntheticEngine):
     """A webcam behind the synthetic engine's loop."""
 
+    # The device owns exposure (see the module docstring), so "exposure" and
+    # "lux" drop off the synthetic backend's list.
+    CAPABILITIES = frozenset({"burst", "timelapse", "birdflight"})
+
     def __init__(self, cfg, storage, on_event):
         super().__init__(cfg, storage, on_event)
         self.name = "camera-opencv"

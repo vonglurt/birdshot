@@ -156,6 +156,19 @@ class CameraEngine(threading.Thread):
     """Owns the camera. Commands go in through :meth:`send`, results come out
     through the ``on_event`` callback as ``(name, payload)``."""
 
+    # What this backend can actually do (see backends/__init__.py). The GUI
+    # greys out anything not listed rather than offering a control that would
+    # only ever come back as an error event. "birdflight" is absent until the
+    # mode's state plumbing is wired into this engine (docs/ROADMAP.md) --
+    # the detector is shared, the engine loop is not yet.
+    CAPABILITIES = frozenset({
+        "single", "burst", "rapid", "timelapse", "video",
+        "exposure", "isp_tone", "sensor_modes", "cascade", "lux",
+    })
+
+    def capabilities(self) -> frozenset:
+        return self.CAPABILITIES
+
     def __init__(self, cfg, storage: Storage, on_event: Callable[[str, Dict[str, Any]], None]):
         if not HAVE_PICAMERA2:
             raise CameraConfigError(

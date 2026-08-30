@@ -55,6 +55,15 @@ class SyntheticEngine(threading.Thread):
     session lifecycle, analysis, preview publishing and frame writing stay
     shared."""
 
+    # What this backend can do (see the package docstring). No video, rapid
+    # or single: those need the real sensor and encoder, and pretending
+    # otherwise is exactly what this backend exists to avoid.
+    CAPABILITIES = frozenset({"burst", "timelapse", "birdflight",
+                              "exposure", "lux"})
+
+    def capabilities(self) -> frozenset:
+        return self.CAPABILITIES
+
     def __init__(self, cfg, storage: Storage,
                  on_event: Callable[[str, Dict[str, Any]], None]):
         super().__init__(daemon=True, name="camera-synthetic")
@@ -389,8 +398,11 @@ class SyntheticEngine(threading.Thread):
                 and now >= self._bf_next_ok):
             self._bf_burst_left = max(1, int(self.cfg["bf_burst"]))
             self._bf_takes += 1
+            # Kept for the whole burst: every frame it fires carries the
+            # trigger that earned it, in index.jsonl and from there into EXIF.
+            self._bf_sighting = sighting.to_dict()
             self._emit("bird", {"phase": "take", "take_n": self._bf_takes,
-                                "sighting": sighting.to_dict()})
+                                "sighting": self._bf_sighting})
         elif sighting.present and now - self._bf_last_report >= 1.0:
             # A sighting that did not fire, reported at most once a second so
             # the GUI can say *why* the mode is holding its fire.
@@ -400,7 +412,9 @@ class SyntheticEngine(threading.Thread):
 
         wrote = False
         if self._bf_burst_left > 0:
-            wrote = self._write_frame(y8, stats, decision)
+            wrote = self._write_frame(y8, stats, decision,
+                                      extra={"bird": getattr(self, "_bf_sighting", None),
+                                             "take": self._bf_takes})
             self._bf_burst_left -= 1
             if self._bf_burst_left == 0 or not wrote:
                 self._bf_next_ok = now + float(self.cfg["bf_cooldown_s"])
@@ -410,7 +424,7 @@ class SyntheticEngine(threading.Thread):
                     self._emit("state", {"state": self._state})
         return wrote
 
-    def _write_frame(self, y8: np.ndarray, stats, decision) -> bool:
+    def _write_frame(self, y8: np.ndarray, stats, decision, extra=None) -> bool:
         jpeg = self._encode_jpeg(self._capture_rgb(y8))
         if jpeg is None:
             if not self._encoder_missing_said:
@@ -421,7 +435,7 @@ class SyntheticEngine(threading.Thread):
             return False
         self._seq += 1
         path = self.storage.write_frame(jpeg, self._exposure_us, self._gain,
-                                        self._seq, stats, decision)
+                                        self._seq, stats, decision, extra=extra)
         if path:
             self._last_written = os.path.basename(path)
         self._taken += 1

@@ -24,6 +24,20 @@ Backends today:
 and falls back to synthetic. ``auto`` deliberately never opens a webcam --
 lighting up a camera the user did not pick is not this program's call; the
 GUI's selector (or ``--backend opencv``) is how a webcam gets chosen.
+
+Every engine also declares what it can actually do, as a frozenset of
+capability names on ``CAPABILITIES`` / ``capabilities()``:
+
+    single, burst, rapid, timelapse, video, birdflight   -- commands it runs
+    exposure     our EV-space AE loop drives the device (webcams own theirs)
+    isp_tone     the ISP tone curve and live controls are real here
+    sensor_modes the CAPTURE_MODES resolution list means something
+    cascade      group capture + tier migration run here (rides rapid)
+    lux          a real lux estimate feeds the AE seed
+
+The GUI greys out (never hides) anything not declared, with the reason --
+a control that could only ever come back as an error event is not offered
+as a working one. ``engine_capabilities`` is the tolerant accessor.
 """
 
 import subprocess
@@ -103,6 +117,14 @@ def list_cameras() -> List[Dict[str, Any]]:
         "model": "Synthetic sky (demo scene)", "id": "synthetic:0",
     })
     return cams
+
+
+def engine_capabilities(engine) -> frozenset:
+    """The engine's declared capability set; empty for one that predates the
+    declaration (nothing is gated off for an engine we know nothing about is
+    the wrong default -- an unknown engine gates everything, honestly)."""
+    caps = getattr(engine, "CAPABILITIES", None)
+    return frozenset(caps) if caps else frozenset()
 
 
 def resolve_choice(cfg) -> "tuple[str, int]":

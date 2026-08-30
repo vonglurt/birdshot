@@ -159,7 +159,9 @@ def _check_config(rows, cfg):
         rows.append((WARN, "capture_mode", "unreadable: %r" % (exc,)))
 
 
-def run(cfg, as_json=False, write_config=False):
+def collect(cfg):
+    """Every check, as (status, name, detail) rows -- the GUI's health panel
+    and :func:`run` both read from here so they can never disagree."""
     rows = []
     _check_platform(rows)
     _check_modules(rows)
@@ -167,6 +169,11 @@ def run(cfg, as_json=False, write_config=False):
     _check_cameras(rows)
     _check_storage(rows, cfg)
     _check_config(rows, cfg)
+    return rows
+
+
+def run(cfg, as_json=False, write_config=False):
+    rows = collect(cfg)
 
     if write_config:
         try:

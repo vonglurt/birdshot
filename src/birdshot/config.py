@@ -59,6 +59,13 @@ DEFAULTS: Dict[str, Any] = {
     # Which device within the backend: Picamera2 camera number, or the
     # OpenCV/AVFoundation device index. The GUI's camera selector sets both.
     "camera_index": 0,
+    # ---- interface -----------------------------------------------------
+    # Which face the GUI boots into: camera (plain camera app), field (the
+    # instrument outdoors), bench (every setting), library (the darkroom).
+    # "auto" resolves per install -- a git checkout gets bench, the Pi gets
+    # field, Alpine/copal gets camera, a Mac install gets library -- and the
+    # deploy channel can pin it via doctor --write-config. See gui/faces.py.
+    "ui_face": "auto",
     # ---- storage -------------------------------------------------------
     # Capture always lands on the eMMC (78 MB/s). The USB stick is NTFS over
     # a USB 2.0 port (~12 MB/s) and is only ever an offload target.
