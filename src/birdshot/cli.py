@@ -1030,7 +1030,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
-    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "synthetic"],
+    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "replay", "synthetic"],
                     help="camera backend (default: config, then auto)")
     ap.add_argument("--camera", type=int, metavar="N",
                     help="device index within the backend (see 'info')")

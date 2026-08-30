@@ -59,6 +59,9 @@ DEFAULTS: Dict[str, Any] = {
     # Which device within the backend: Picamera2 camera number, or the
     # OpenCV/AVFoundation device index. The GUI's camera selector sets both.
     "camera_index": 0,
+    # The replay backend's footage: a folder of stills, or a video file
+    # (video needs OpenCV). How Bird Flight gates get tuned on real birds.
+    "replay_path": "",
     # ---- interface -----------------------------------------------------
     # Which face the GUI boots into: camera (plain camera app), field (the
     # instrument outdoors), bench (every setting), library (the darkroom).

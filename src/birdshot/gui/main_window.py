@@ -951,7 +951,7 @@ class MainWindow(QMainWindow):
     # ---- camera selection --------------------------------------------
     def _populate_cameras(self) -> None:
         from birdshot import backends
-        self._cameras = backends.list_cameras()
+        self._cameras = backends.list_cameras(self.cfg)
         current = backends.resolve_choice(self.cfg)
         selected = len(self._cameras) - 1        # synthetic is always last
         labels = []
@@ -976,8 +976,21 @@ class MainWindow(QMainWindow):
         if not (0 <= i < len(self._cameras)):
             return
         cam = self._cameras[i]
+        if cam["backend"] == "replay":
+            # Replay plays a path, not a device: ask for the footage first
+            # (and re-ask on a fresh pick, so switching folders is this same
+            # gesture). Cancelling keeps the current camera.
+            path = QFileDialog.getExistingDirectory(
+                self, "Folder of stills to replay",
+                self.cfg.get("replay_path") or self.cfg["data_root"])
+            if not path:
+                self._populate_cameras()
+                return
+            self.cfg["replay_path"] = path
+            self._save()
         if ((cam["backend"], cam["index"]) == backends.resolve_choice(self.cfg)
-                and self.engine.is_alive()):
+                and self.engine.is_alive()
+                and cam["backend"] != "replay"):
             return
         previous = (self.cfg.get("backend"), int(self.cfg.get("camera_index", 0)))
         self.cfg["backend"] = cam["backend"]

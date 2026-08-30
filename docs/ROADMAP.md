@@ -82,8 +82,10 @@ Two deployment stories, both first-class:
   exposure, driven by the *real* analysis gates and the real AE controller)
   now runs the GUI and CLI capture on any machine with numpy. Verified on the
   Mac: GUI opens, previews at 10 fps, AE settles, bursts write real JPEGs.
-  Still to come: an OpenCV/AVFoundation backend for real webcams (and
-  incidentally V4L2 Linux), and a file/replay backend for recorded footage.
+  The OpenCV/AVFoundation webcam backend (incidentally V4L2 Linux) and
+  the **replay backend** (a folder of stills, or a video file with OpenCV,
+  through the real pipeline -- cfg ``replay_path``, the camera picker's
+  "Replay footage..." entry) have both landed since.
   Exposure control will be shallower off the Pi — acceptable; the Mac is for
   development and preview, the Pi is the instrument.
 
@@ -192,8 +194,9 @@ taste, not from the deployed panel), and screenshots for the README slots.
 3. Performance pass (on-Pi; first session after power-up, right after the
    1.0.0 selftest).
 4. Capture Bird Flight — **built**; wire into the Pi `CameraEngine` and
-   field-tune thresholds when the Pi is on. A file/replay backend for
-   recorded footage remains the honest way to tune gates on real birds.
+   field-tune thresholds when the Pi is on. The **replay backend is in**:
+   point the camera picker at recorded footage and the same gates judge it,
+   which is how thresholds get tuned on real birds before the Pi wiring.
 5. The faces (item 7) — **done** off-Pi; verify on the Pi's display.
 
 Ship `v1.1.0-rc1` when the on-Pi items hold on both platforms; Bird Flight

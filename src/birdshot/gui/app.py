@@ -68,7 +68,7 @@ def main() -> int:
                     help="open windowed instead of filling the screen")
     ap.add_argument("--fullscreen", action="store_true",
                     help="open with no window decorations at all")
-    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "synthetic"],
+    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "replay", "synthetic"],
                     help="camera backend (default: config, then auto)")
     ap.add_argument("--screenshot", metavar="PATH",
                     help="save a window grab a few seconds after startup and "

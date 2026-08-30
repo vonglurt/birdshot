@@ -44,6 +44,11 @@ Notable changes to birdshot. Format loosely follows
   EXIF chain and the Library's "trigger that fired this take" read), and
   the detector's subject box is drawn on the preview at display rate,
   green through a take.
+- **Replay backend** — `--backend replay` / the camera picker's "Replay
+  footage..." entry play a folder of stills (or a video file, with OpenCV)
+  through the real analysis, session and Bird Flight pipeline. Picking it
+  in the GUI asks for the folder (`replay_path`). This is how `bf_*` gates
+  get tuned against real birds before the Pi engine wiring lands.
 - **Selftest honest off the instrument** — a new SKIP outcome for checks
   whose subject this machine cannot run (piexif absent; the ISP tuning
   file off-Pi, where `build_tuning()` correctly declines and the test now

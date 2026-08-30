@@ -19,6 +19,9 @@ Backends today:
                 analysis gates and the real EV-space AE loop against a scene
                 that actually responds to exposure -- so GUI, metering and
                 exposure work can all be developed on any machine.
+    replay      recorded footage (a folder of stills, or a video file with
+                OpenCV) through the same pipeline -- how Bird Flight gates
+                get tuned against real birds. Source is cfg["replay_path"].
 
 ``create_engine`` picks by ``cfg["backend"]``: ``auto`` prefers the Pi camera
 and falls back to synthetic. ``auto`` deliberately never opens a webcam --
@@ -94,12 +97,13 @@ def _opencv_cameras() -> List[Dict[str, Any]]:
     return cams
 
 
-def list_cameras() -> List[Dict[str, Any]]:
+def list_cameras(cfg=None) -> List[Dict[str, Any]]:
     """Every camera an engine could open on this machine.
 
-    Real cameras first (Pi camera, then webcams), the synthetic scene always
-    last -- so index 0 is always the best available and the list is never
-    empty. This is the list the GUI's camera selector shows.
+    Real cameras first (Pi camera, then webcams), then replay, then the
+    synthetic scene always last -- so index 0 is always the best available
+    and the list is never empty. This is the list the GUI's camera selector
+    shows; with a ``cfg`` the replay entry names its footage.
     """
     cams: List[Dict[str, Any]] = []
     try:
@@ -112,6 +116,14 @@ def list_cameras() -> List[Dict[str, Any]]:
     except Exception:  # noqa: BLE001 -- no stack, or a broken one: same answer
         pass
     cams.extend(_opencv_cameras())
+    replay_path = str(cfg.get("replay_path") or "") if cfg is not None else ""
+    import os as _os
+    cams.append({
+        "backend": "replay", "index": 0,
+        "model": ("Replay: %s" % _os.path.basename(replay_path.rstrip("/"))
+                  if replay_path else "Replay footage... (pick a folder)"),
+        "id": "replay:%s" % replay_path,
+    })
     cams.append({
         "backend": "synthetic", "index": 0,
         "model": "Synthetic sky (demo scene)", "id": "synthetic:0",
@@ -136,7 +148,7 @@ def resolve_choice(cfg) -> "tuple[str, int]":
     if choice == "auto":
         ok, _ = picamera2_available()
         choice = "picamera2" if ok else "synthetic"
-    if choice == "synthetic":
+    if choice in ("synthetic", "replay"):
         idx = 0
     return choice, idx
 
@@ -183,9 +195,13 @@ def create_engine(cfg, storage, on_event: Callable[[str, Dict[str, Any]], None],
         from birdshot.backends.opencv import OpenCVEngine
         return OpenCVEngine(cfg, storage, on_event)
 
+    if choice == "replay":
+        from birdshot.backends.replay import ReplayEngine
+        return ReplayEngine(cfg, storage, on_event)
+
     if choice in ("auto", "synthetic"):
         from birdshot.backends.synthetic import SyntheticEngine
         return SyntheticEngine(cfg, storage, on_event)
 
-    raise ValueError("unknown backend %r (want auto, picamera2, opencv or "
-                     "synthetic)" % choice)
+    raise ValueError("unknown backend %r (want auto, picamera2, opencv, "
+                     "replay or synthetic)" % choice)
