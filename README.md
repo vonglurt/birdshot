@@ -316,6 +316,17 @@ amber label; the rail's footer counts them and `reset...` lists and
 restores them. A `doctor:` chip in the status bar carries the same
 checklist `birdshot-cli doctor` prints — click it for the full report.
 
+The **profile** row under the camera picker saves the whole setup —
+camera, exposure, gates, mode, all of it except machine paths — under a
+name, and activating one applies it in a single pick (switching cameras if
+it names another). Headless: `birdshot-cli profiles list|save|use|delete`,
+or `birdshot-cli --profile <name> <command>` for one run.
+
+Webcams get their own capture-size request (Stills > *Webcam capture*,
+default **best the camera offers** — devices negotiate down from
+1920x1080), the negotiated size shows as *Delivering*, and saved frames
+are the camera's native resolution, not the 640x480 analysis copy.
+
 Because the same window now drives an IMX477, a webcam or the synthetic
 scene, every control is **gated by what the selected camera can actually
 do**: modes and sections a backend cannot run grey out with the reason,

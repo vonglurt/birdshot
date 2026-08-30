@@ -38,6 +38,17 @@ CAPTURE_MODES = [
     (1332, 990, "Fast 1332x990 (cropped)", 10.4),
 ]
 
+# Webcam capture requests (the opencv backend): (width, height, label).
+# UVC/AVFoundation negotiate DOWN from a request, so asking for 1920x1080
+# from a 720p camera simply yields 1280x720 -- the first entry means "the
+# biggest this camera offers". Analysis always runs at 640x480 regardless;
+# this sets the resolution of the frames that get SAVED.
+WEBCAM_MODES = [
+    (1920, 1080, "Best the camera offers (asks 1920x1080)"),
+    (1280, 720, "1280x720"),
+    (640, 480, "640x480 (analysis size, smallest files)"),
+]
+
 # Video modes: (width, height, fps, label).
 # The CM4's hardware H.264 encoder tops out at 1080p -- asking for 2028x1080
 # gets silently renegotiated down to 1920x1080, so those sizes are not offered.
@@ -62,6 +73,8 @@ DEFAULTS: Dict[str, Any] = {
     # The replay backend's footage: a folder of stills, or a video file
     # (video needs OpenCV). How Bird Flight gates get tuned on real birds.
     "replay_path": "",
+    # Index into WEBCAM_MODES: what the opencv backend asks the device for.
+    "webcam_mode": 0,
     # ---- interface -----------------------------------------------------
     # Which face the GUI boots into: camera (plain camera app), field (the
     # instrument outdoors), bench (every setting), library (the darkroom).

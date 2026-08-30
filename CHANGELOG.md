@@ -8,6 +8,22 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **Settings profiles** — save a whole setup (camera, exposure, gates,
+  mode — everything but the machine paths) under a name and activate it in
+  one gesture: the profile row in Bench's header (save / new... / del,
+  picking one applies it, rebuilding the engine if it names a different
+  camera), `birdshot-cli profiles list|save|use|show|delete`, and
+  `birdshot-cli --profile <name> <command>` for a one-shot headless run.
+  Files live next to settings.json under `profiles/`; machine paths
+  (data_root, usb_root, cascade tiers) never ride a profile, so a profile
+  can move between installs without pointing capture at a missing disk.
+  Covered by selftest.
+- **Webcam captures at native resolution** — the opencv backend used to
+  save the 640x480 analysis frame; it now keeps the camera's delivered
+  frame for saves and letterboxes a copy for analysis. What to ask the
+  device for is the new "Webcam capture" setting (Stills section, default
+  "Best the camera offers" — devices negotiate down from 1920x1080), with
+  the negotiated size shown live ("Delivering 1280x720") and logged.
 - **One window, four faces** — the GUI grew a face switcher (title bar, or
   Ctrl+1..4) over the same engine and settings.json, matching the audiences
   the packaging plan ships to: **Camera** (a plain camera app — preview,

@@ -47,6 +47,8 @@ def _progress(name, payload):
                  st.verdict if st else "?", payload.get("gain", 0),
                  payload.get("bytes", 0) / 1e6,
                  os.path.basename(payload.get("path") or "-")))
+    elif name == "camera":
+        print("  %s" % payload.get("msg"))
     elif name == "error":
         print("  ERROR: %s" % payload.get("msg"), file=sys.stderr)
 
@@ -100,8 +102,13 @@ def cmd_capture(args, cfg):
     if args.mode is not None:
         cfg["capture_mode"] = args.mode
     engine, storage, _ = _engine(cfg, _progress)
-    print("capturing %s frames at %dx%d..."
-          % (args.count or "unlimited", *cfg.capture_size()))
+    # Only the Pi sensor's mode list means anything for the size; a webcam
+    # reports what it actually negotiated through the "camera" event above.
+    if "sensor_modes" in getattr(engine, "CAPABILITIES", ()):
+        print("capturing %s frames at %dx%d..."
+              % (args.count or "unlimited", *cfg.capture_size()))
+    else:
+        print("capturing %s frames..." % (args.count or "unlimited"))
     t0 = time.time()
     engine.send("burst", count=args.count)
     _await_state(engine, "burst", args.timeout)
@@ -274,6 +281,46 @@ def cmd_cascade(args, cfg):
               % (st["moved_groups"], st["moved_bytes"] / 1e9, st["errors"]))
     storage.stop(60)
     return 0
+
+
+def cmd_profiles(args, cfg):
+    """Named settings profiles: list, save, use, show, delete."""
+    from birdshot import profiles
+
+    action, name = args.action, args.name
+    if action in ("save", "use", "delete", "show") and not name:
+        print("profiles %s needs a name" % action, file=sys.stderr)
+        return 2
+    if action == "list":
+        entries = profiles.list_profiles(cfg)
+        if not entries:
+            print("no profiles saved (birdshot-cli profiles save <name>)")
+            return 0
+        for p in entries:
+            when = (time.strftime("%Y-%m-%d %H:%M", time.localtime(p["saved"]))
+                    if p["saved"] else "?")
+            print("  %-24s saved %s" % (p["name"], when))
+        return 0
+    if action == "save":
+        path = profiles.save(cfg, name)
+        print("saved current settings as '%s' (%s)" % (name, path))
+        return 0
+    if action == "use":
+        changed = profiles.apply(cfg, name)
+        print("profile '%s' activated - %d setting(s) changed%s"
+              % (name, len(changed),
+                 (": " + ", ".join(changed)) if changed else ""))
+        return 0
+    if action == "show":
+        for k, v in sorted(profiles.load(cfg, name).items()):
+            marker = "" if cfg.get(k) == v else "   (now %r)" % (cfg.get(k),)
+            print("  %-24s %r%s" % (k, v, marker))
+        return 0
+    if action == "delete":
+        profiles.delete(cfg, name)
+        print("deleted profile '%s'" % name)
+        return 0
+    return 2
 
 
 def cmd_birdflight(args, cfg):
@@ -971,6 +1018,31 @@ def cmd_selftest(args, cfg):
                 "tuning file (correct off-instrument)")
     check("tone curve", t_tone)
 
+    def t_profiles():
+        import shutil, tempfile
+        from birdshot import profiles
+        base = tempfile.mkdtemp()
+        c = Config(os.path.join(base, "settings.json"))
+        c["jpeg_quality"] = 77; c["bf_burst"] = 9; c["data_root"] = "/keep/me"
+        profiles.save(c, "selftest one")
+        assert [p["name"] for p in profiles.list_profiles(c)] == ["selftest one"]
+        c["jpeg_quality"] = 92; c["bf_burst"] = 5; c["data_root"] = "/moved"
+        changed = profiles.apply(c, "selftest one")
+        assert c["jpeg_quality"] == 77 and c["bf_burst"] == 9, changed
+        assert c["data_root"] == "/moved", "machine paths must never ride a profile"
+        assert "jpeg_quality" in changed and "bf_burst" in changed
+        assert profiles.apply(c, "selftest one") == []   # idempotent
+        profiles.delete(c, "selftest one")
+        assert not profiles.list_profiles(c)
+        try:
+            profiles.save(c, "../evil")
+            raise AssertionError("path-shaped profile name accepted")
+        except ValueError:
+            pass
+        shutil.rmtree(base, ignore_errors=True)
+        return "save/apply/delete round-trip; machine paths stay put; names sane"
+    check("settings profiles", t_profiles)
+
     def t_yuv():
         from birdshot.camera import yuv420_to_rgb
         buf = np.zeros((720, 640), np.uint8)
@@ -1034,6 +1106,9 @@ def main():
                     help="camera backend (default: config, then auto)")
     ap.add_argument("--camera", type=int, metavar="N",
                     help="device index within the backend (see 'info')")
+    ap.add_argument("--profile", metavar="NAME",
+                    help="activate a saved settings profile for this run "
+                         "(without persisting it; see 'profiles')")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("info").set_defaults(fn=cmd_info)
@@ -1102,8 +1177,25 @@ def main():
     a.add_argument("--exif", action="store_true", help="stamp EXIF first")
     a.set_defaults(fn=cmd_assemble)
 
+    pr = sub.add_parser("profiles",
+                        help="named settings profiles: save a whole setup, "
+                             "activate it in one command")
+    pr.add_argument("action", nargs="?", default="list",
+                    choices=["list", "save", "use", "show", "delete"])
+    pr.add_argument("name", nargs="?")
+    pr.set_defaults(fn=cmd_profiles)
+
     args = ap.parse_args()
     cfg = Config(args.config) if args.config else Config()
+    if args.profile:
+        from birdshot import profiles
+        try:
+            # For this run only: flags below may still override it, and the
+            # activation is not written back to settings.json.
+            profiles.apply(cfg, args.profile, save_config=False)
+        except (OSError, ValueError) as exc:
+            print("--profile %s: %s" % (args.profile, exc), file=sys.stderr)
+            return 2
     if args.backend:
         cfg["backend"] = args.backend
     if args.camera is not None:

@@ -100,8 +100,9 @@ class MainWindow(QMainWindow):
         # bar carries the answer and clicking it opens the full checklist.
         QTimer.singleShot(3000, self._run_doctor)
 
-        if self.cfg.get("outdoor_mode"):
-            self.chk_outdoor.setChecked(True)
+        # The checkbox starts pre-checked from the config (no toggle signal),
+        # so push the view side once explicitly.
+        self._outdoor_changed(bool(self.cfg.get("outdoor_mode")))
 
         if self.auto:
             # Unattended: skip the calibration prompt (nothing would answer it)
@@ -245,6 +246,11 @@ class MainWindow(QMainWindow):
             self._log("encode: %s" % payload.get("stage"))
         elif name == "bird":
             self._on_bird(payload)
+        elif name == "camera":
+            self._log(str(payload.get("msg")))
+            msg = str(payload.get("msg") or "")
+            if "delivering" in msg and hasattr(self, "lbl_webcam_got"):
+                self.lbl_webcam_got.setText(msg.split("delivering")[-1].strip())
         elif name == "doctor":
             self._on_doctor(payload)
         elif name == "rapid":
@@ -498,6 +504,10 @@ class MainWindow(QMainWindow):
         kn.valueChanged.connect(
             lambda v: (self.cfg.__setitem__("tone_knee_soft", v), self._save(),
                        self._levels_timer.start()))
+        self._register("tone_knee_soft", kn, lambda: (
+            kn.blockSignals(True),
+            kn.setValue(float(self.cfg["tone_knee_soft"])),
+            kn.blockSignals(False)))
         lrow.addWidget(kn)
         lv.addLayout(lrow)
         lv.addWidget(self._build_readout())
@@ -725,6 +735,34 @@ class MainWindow(QMainWindow):
         # activated fires only on a user pick, never on programmatic updates.
         self.cmb_camera.activated.connect(self._switch_camera)
 
+        # Profiles: a whole setup -- camera, exposure, gates, mode -- saved
+        # under a name and activated in one pick (see birdshot/profiles.py).
+        rowp = QHBoxLayout()
+        rowp.addWidget(QLabel("profile"))
+        self.cmb_profile = QComboBox()
+        self.cmb_profile.setToolTip(
+            "Named settings profiles. Picking one activates it: every value\n"
+            "it carries is applied, the camera switches if it names another\n"
+            "one, and machine paths are never touched.")
+        rowp.addWidget(self.cmb_profile, 1)
+        btn_psave = QPushButton("save")
+        btn_psave.setToolTip("Save the current settings over the selected "
+                             "profile (or as a new one when none is selected).")
+        btn_psave.clicked.connect(self._profile_save)
+        rowp.addWidget(btn_psave)
+        btn_pnew = QPushButton("new...")
+        btn_pnew.setToolTip("Save the current settings as a new profile.")
+        btn_pnew.clicked.connect(self._profile_new)
+        rowp.addWidget(btn_pnew)
+        btn_pdel = QPushButton("del")
+        btn_pdel.setToolTip("Delete the selected profile (the file only -- "
+                            "current settings stay as they are).")
+        btn_pdel.clicked.connect(self._profile_delete)
+        rowp.addWidget(btn_pdel)
+        v.addLayout(rowp)
+        self._refresh_profiles()
+        self.cmb_profile.activated.connect(self._profile_activated)
+
         # ~90 settings need findability, not a fourth tab: type a fragment,
         # pick the match, land on the control with the section opened.
         self.ed_search = QLineEdit()
@@ -761,11 +799,11 @@ class MainWindow(QMainWindow):
         btn_full = QPushButton("Fullscreen  (F11)")
         btn_full.clicked.connect(self._toggle_fullscreen)
         row.addWidget(btn_full)
-        self.chk_outdoor = QCheckBox("Outdoor mode")
+        self.chk_outdoor = self._check("outdoor_mode", "Outdoor mode",
+                                       on_change=self._outdoor_changed)
         self.chk_outdoor.setToolTip(
             "Contrast-stretches the preview and burns in its edges, so the\n"
             "subject stays findable on a screen washed out by sunlight.")
-        self.chk_outdoor.toggled.connect(self._outdoor_toggled)
         row.addWidget(self.chk_outdoor)
         self.cmb_outdoor = QComboBox()
         self.cmb_outdoor.addItems(["boost", "edges only"])
@@ -894,14 +932,14 @@ class MainWindow(QMainWindow):
             self.face_field.set_outdoor(self.chk_outdoor.isChecked(), i)
         self.preview.update()
 
-    def _outdoor_toggled(self, on: bool) -> None:
-        self.preview.outdoor = on
-        self.cfg["outdoor_mode"] = bool(on)
-        self._save()
+    def _outdoor_changed(self, on: bool) -> None:
+        """The view side of outdoor mode (the config write is the checkbox
+        binding's); also called directly when the config changes in bulk."""
+        self.preview.outdoor = bool(on)
         if self._fullscreen is not None:
-            self._fullscreen.view.outdoor = on
+            self._fullscreen.view.outdoor = bool(on)
         if hasattr(self, "face_field"):
-            self.face_field.set_outdoor(on, self.cmb_outdoor.currentIndex())
+            self.face_field.set_outdoor(bool(on), self.cmb_outdoor.currentIndex())
         self.preview.update()
 
     def _set_all_overlays(self, on: bool) -> None:
@@ -1018,6 +1056,136 @@ class MainWindow(QMainWindow):
         self.engine.send("preview")
         # A different device can do a different set of things.
         self._apply_capabilities()
+
+    def _rebuild_engine(self) -> None:
+        """Tear down and rebuild on whatever the config now says."""
+        from birdshot import backends
+        old = self.engine
+        try:
+            old.send("stop")
+            old.shutdown()
+            old.join(timeout=10)
+        except Exception:  # noqa: BLE001 -- a wedged engine must not block
+            pass
+        try:
+            backends.warm_up(self.cfg)
+            self.engine = self._engine_factory(self._emit_event)
+        except Exception as exc:  # noqa: BLE001
+            self.banner.setText("could not open the configured camera: %s" % exc)
+            self.banner.setVisible(True)
+            self.cfg["backend"] = "auto"
+            self._save()
+            self.engine = self._engine_factory(self._emit_event)
+        self.engine.start()
+        self.engine.send("preview")
+        self._populate_cameras()
+        self._apply_capabilities()
+
+    # ---- profiles ------------------------------------------------------
+    def _refresh_profiles(self, select: Optional[str] = None) -> None:
+        from birdshot import profiles
+        self.cmb_profile.blockSignals(True)
+        self.cmb_profile.clear()
+        self.cmb_profile.addItem("(no profile active)")
+        for i, p in enumerate(profiles.list_profiles(self.cfg)):
+            self.cmb_profile.addItem(p["name"])
+            if p["name"] == select:
+                self.cmb_profile.setCurrentIndex(i + 1)
+        self.cmb_profile.blockSignals(False)
+
+    def _profile_activated(self, i: int) -> None:
+        if i <= 0:
+            return
+        from birdshot import profiles
+        name = self.cmb_profile.itemText(i)
+        before = (self.cfg.get("backend"), self.cfg.get("camera_index"),
+                  self.cfg.get("replay_path"))
+        try:
+            changed = profiles.apply(self.cfg, name)
+        except (OSError, ValueError) as exc:
+            self._log("profile %r failed: %s" % (name, exc))
+            self._refresh_profiles()
+            return
+        self._after_settings_swap(before)
+        self._log("profile '%s' activated - %d setting(s) changed"
+                  % (name, len(changed)))
+
+    def _after_settings_swap(self, before) -> None:
+        """Bring the window and the engine up to a config that changed
+        underneath them (a profile activation, or a bulk reset)."""
+        for e in self._registry:
+            e["refresh"]()
+        # Side effects the silent refreshes skip: the view flags and the
+        # histogram markers read the config directly.
+        self._outdoor_changed(bool(self.cfg.get("outdoor_mode")))
+        self.preview.stripe_px = int(self.cfg.get("outdoor_stripe_px", 3))
+        self.preview.outdoor_strength = float(self.cfg.get("outdoor_strength", 1.0))
+        self.histogram.set_levels(self.cfg.get("tone_black", 0.0),
+                                  self.cfg.get("tone_white", 1.0))
+        self.tuner.set_index(int(self.cfg.get("shoot_mode", 0)))
+        now = (self.cfg.get("backend"), self.cfg.get("camera_index"),
+               self.cfg.get("replay_path"))
+        if now != before:
+            self._rebuild_engine()
+        else:
+            self.engine.send("reconfigure")
+            if not self.cfg["auto_exposure"]:
+                self.engine.send("set_exposure",
+                                 exposure_us=int(self.cfg["manual_shutter_us"]),
+                                 gain=float(self.cfg["manual_gain"]))
+            self._apply_capabilities()
+        self._refresh_summaries()
+        self._refresh_provenance()
+
+    def _profile_save(self) -> None:
+        if self.cmb_profile.currentIndex() <= 0:
+            self._profile_new()
+            return
+        from birdshot import profiles
+        name = self.cmb_profile.currentText()
+        try:
+            profiles.save(self.cfg, name)
+        except (OSError, ValueError) as exc:
+            self._log("profile save failed: %s" % exc)
+            return
+        self._log("profile '%s' saved from the current settings" % name)
+
+    def _profile_new(self) -> None:
+        from PyQt5.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(
+            self, "New profile",
+            "Save the current settings as:\n(letters, digits, dots, dashes, "
+            "spaces; 40 max)")
+        if not ok or not name.strip():
+            return
+        from birdshot import profiles
+        try:
+            profiles.save(self.cfg, name.strip())
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Profile", str(exc))
+            return
+        self._refresh_profiles(select=name.strip())
+        self._log("profile '%s' saved" % name.strip())
+
+    def _profile_delete(self) -> None:
+        if self.cmb_profile.currentIndex() <= 0:
+            return
+        name = self.cmb_profile.currentText()
+        reply = QMessageBox.question(
+            self, "Delete profile",
+            "Delete the profile '%s'?\n\nCurrent settings stay as they are; "
+            "only the saved file goes." % name,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        from birdshot import profiles
+        try:
+            profiles.delete(self.cfg, name)
+        except OSError as exc:
+            self._log("profile delete failed: %s" % exc)
+            return
+        self._refresh_profiles()
+        self._log("profile '%s' deleted" % name)
 
     def _build_readout(self) -> QWidget:
         """One compact line. The detail lives in the HUD drawn on the image.
@@ -1184,6 +1352,20 @@ class MainWindow(QMainWindow):
         form.addRow("Expected rate", self.lbl_expect)
         self.cmb_mode.currentIndexChanged.connect(self._update_expected)
         self._update_expected(self.cfg["capture_mode"])
+
+        from ..config import WEBCAM_MODES
+        self.cmb_webcam = self._combo(
+            "webcam_mode", [m[2] for m in WEBCAM_MODES],
+            on_change=lambda i: self.engine.send("reconfigure"),
+        )
+        self.cmb_webcam.setToolTip(
+            "What to ask a webcam for. Devices negotiate DOWN from the\n"
+            "request, so the first entry gets the biggest this camera does.\n"
+            "Saved frames are this size; analysis always runs at 640x480.")
+        form.addRow("Webcam capture", self.cmb_webcam)
+        self.lbl_webcam_got = QLabel("-")
+        self.lbl_webcam_got.setStyleSheet("color:#888;")
+        form.addRow("Delivering", self.lbl_webcam_got)
 
         form.addRow("Burst limit (0 = unlimited)", self._spin("burst_count", 0, 100000, 10))
         form.addRow("JPEG quality", self._spin("jpeg_quality", 50, 100, 1))
@@ -1582,6 +1764,10 @@ class MainWindow(QMainWindow):
         self.spin_ewidth.valueChanged.connect(
             lambda x: (self.cfg.__setitem__("encode_width", x), self.cfg.save())
         )
+        self._register("encode_width", self.spin_ewidth, lambda: (
+            self.spin_ewidth.blockSignals(True),
+            self.spin_ewidth.setValue(int(self.cfg["encode_width"])),
+            self.spin_ewidth.blockSignals(False)))
         of.addRow("Scale", self.spin_ewidth)
         of.addRow("Quality (CRF, lower = better)",
                   self._spin("encode_crf", 0, 51, 1))
@@ -2139,6 +2325,10 @@ class MainWindow(QMainWindow):
         self.sld_ram.setTickPosition(QSlider.TicksBelow)
         self.sld_ram.setValue(int(self.cfg["cascade_ram_pct"]))
         self.sld_ram.valueChanged.connect(self._ram_slider_moved)
+        self._register("cascade_ram_pct", self.sld_ram, lambda: (
+            self.sld_ram.blockSignals(True),
+            self.sld_ram.setValue(int(self.cfg["cascade_ram_pct"])),
+            self.sld_ram.blockSignals(False)))
         rv.addWidget(self.sld_ram)
         self.lbl_ram = QLabel()
         self.lbl_ram.setWordWrap(True)
@@ -2662,14 +2852,13 @@ class MainWindow(QMainWindow):
         bb.rejected.connect(dlg.reject)
 
         def do_reset():
+            before = (self.cfg.get("backend"), self.cfg.get("camera_index"),
+                      self.cfg.get("replay_path"))
             for k in changed:
                 self.cfg[k] = _copy.deepcopy(DEFAULTS[k])
             self.cfg.save()
-            for e in self._registry:
-                e["refresh"]()
-            self._refresh_provenance()
-            self._log("restored %d setting(s) to defaults - some apply on the "
-                      "next mode start or restart" % len(changed))
+            self._after_settings_swap(before)
+            self._log("restored %d setting(s) to defaults" % len(changed))
             dlg.accept()
 
         btn.clicked.connect(do_reset)
@@ -2727,6 +2916,21 @@ class MainWindow(QMainWindow):
                 "" if "single" in caps else
                 "single-frame capture needs the Pi camera - the Camera face's "
                 "shutter takes a burst of one here")
+        # The IMX477 sensor-mode list vs the webcam capture request: each
+        # resolution picker only means something on its own backend.
+        sensor = "sensor_modes" in caps
+        for combo in (getattr(self, "cmb_mode", None),
+                      getattr(self, "cmb_rapid_res", None)):
+            if combo is not None:
+                combo.setEnabled(sensor)
+                combo.setToolTip("" if sensor else
+                                 "these are the IMX477's sensor modes - %s "
+                                 "does not have them" % cam)
+        webcam = "webcam_modes" in caps
+        if hasattr(self, "cmb_webcam"):
+            self.cmb_webcam.setEnabled(webcam)
+            if not webcam:
+                self.lbl_webcam_got.setText("-")
 
         # Never leave the dial parked on a mode this camera cannot run.
         cur = int(self.cfg.get("shoot_mode", 0))
@@ -2916,8 +3120,17 @@ class MainWindow(QMainWindow):
                 if title.startswith(key):
                     a.set_summary(text)
 
-        put("Stills", "%dx%d, quality gates on, %s" % (
-            w, h, "auto exposure" if self.cfg["auto_exposure"] else "manual"))
+        caps = self.caps()
+        if "sensor_modes" in caps:
+            size_txt = "%dx%d" % (w, h)
+        elif "webcam_modes" in caps:
+            got = getattr(self, "lbl_webcam_got", None)
+            size_txt = (got.text() if got is not None and got.text() != "-"
+                        else "webcam best")
+        else:
+            size_txt = "640x480"
+        put("Stills", "%s, quality gates on, %s" % (
+            size_txt, "auto exposure" if self.cfg["auto_exposure"] else "manual"))
         put("Rapid", "%dx%d, %s, %s frame limit" % (
             w, h, self.cfg["rapid_mode"],
             self.cfg["rapid_count"] or "no"))

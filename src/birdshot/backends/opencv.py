@@ -23,18 +23,17 @@ from typing import Optional
 import numpy as np
 
 from birdshot.backends.synthetic import SyntheticEngine, W, H
-
-# A capture request larger than the sensor silently falls back, so ask for a
-# modest size and downscale ourselves -- analysis runs at 640x480 everywhere.
-REQUEST_W, REQUEST_H = 1280, 720
+from birdshot.config import WEBCAM_MODES
 
 
 class OpenCVEngine(SyntheticEngine):
     """A webcam behind the synthetic engine's loop."""
 
     # The device owns exposure (see the module docstring), so "exposure" and
-    # "lux" drop off the synthetic backend's list.
-    CAPABILITIES = frozenset({"burst", "timelapse", "birdflight"})
+    # "lux" drop off the synthetic backend's list; "webcam_modes" is the
+    # capture-request selector only this backend honours.
+    CAPABILITIES = frozenset({"burst", "timelapse", "birdflight",
+                              "webcam_modes"})
 
     def __init__(self, cfg, storage, on_event):
         super().__init__(cfg, storage, on_event)
@@ -43,7 +42,8 @@ class OpenCVEngine(SyntheticEngine):
         self._cap = None
         self._cap_failed = False
         self._grab_error_at = 0.0
-        self._color: Optional[np.ndarray] = None   # last full-res RGB frame
+        self._color: Optional[np.ndarray] = None       # analysis-size RGB
+        self._color_full: Optional[np.ndarray] = None  # native RGB, for saves
 
     # ------------------------------------------------------------------
     def _ensure_cap(self):
@@ -64,10 +64,28 @@ class OpenCVEngine(SyntheticEngine):
                                         "use, or camera permission not granted "
                                         "to this process" % self._index})
             return None
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, REQUEST_W)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUEST_H)
+        # The device negotiates down from the request (see WEBCAM_MODES), so
+        # the first entry is effectively "your best".
+        idx = max(0, min(int(self.cfg.get("webcam_mode", 0)),
+                         len(WEBCAM_MODES) - 1))
+        req_w, req_h, _label = WEBCAM_MODES[idx]
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, req_w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, req_h)
+        got_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        got_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        self._emit("camera", {"msg": "webcam %d: asked %dx%d, delivering %dx%d"
+                                     % (self._index, req_w, req_h, got_w, got_h)})
         self._cap = cap
         return cap
+
+    def _handle(self, cmd, kw):
+        if cmd == "reconfigure":
+            # Reopen with the (possibly changed) webcam_mode request; the
+            # next _acquire redoes the negotiation and reports it.
+            self._close_source()
+            self._cap_failed = False
+            return
+        super()._handle(cmd, kw)
 
     # ------------------------------------------------------------------
     # frame-source hooks
@@ -86,14 +104,16 @@ class OpenCVEngine(SyntheticEngine):
                 self._emit("error", {"msg": "camera %d stopped delivering frames"
                                             % self._index})
             return None
-        # Analysis geometry matches every other backend: 640x480. Letterbox
-        # rather than distort, so the focus map's tiles stay square-ish.
+        # Saves get what the camera delivered. The analysis (and preview)
+        # copy is letterboxed to 640x480 like every other backend -- saving
+        # THAT was why webcam captures used to come out tiny.
+        self._color_full = np.ascontiguousarray(frame[:, :, ::-1])
         frame = cv2.resize(frame, (W, int(W * frame.shape[0] / frame.shape[1])))
         if frame.shape[0] < H:
             pad = np.zeros((H - frame.shape[0], W, 3), frame.dtype)
             frame = np.vstack([frame, pad])
         frame = frame[:H]
-        self._color = frame[:, :, ::-1]           # BGR -> RGB, kept for saves
+        self._color = frame[:, :, ::-1]
         return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     def _auto_expose(self, stats, now: float):
@@ -108,6 +128,8 @@ class OpenCVEngine(SyntheticEngine):
         return super()._preview_rgb(y8)
 
     def _capture_rgb(self, y8: np.ndarray) -> np.ndarray:
+        if self._color_full is not None:
+            return self._color_full                # native resolution
         if self._color is not None:
             return np.ascontiguousarray(self._color)
         return super()._capture_rgb(y8)
