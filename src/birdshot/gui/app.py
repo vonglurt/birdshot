@@ -26,6 +26,11 @@ def main() -> int:
                     help="open windowed instead of filling the screen")
     ap.add_argument("--fullscreen", action="store_true",
                     help="open with no window decorations at all")
+    ap.add_argument("--backend", choices=["auto", "picamera2", "synthetic"],
+                    help="camera backend (default: config, then auto)")
+    ap.add_argument("--screenshot", metavar="PATH",
+                    help="save a window grab a few seconds after startup and "
+                         "exit -- for CI and docs")
     args = ap.parse_args()
 
     os.environ.setdefault("DISPLAY", args.display)
@@ -35,8 +40,7 @@ def main() -> int:
 
     from PyQt5.QtWidgets import QApplication
 
-    from birdshot import autostart
-    from birdshot.camera import CameraEngine
+    from birdshot import autostart, backends
     from birdshot.config import Config
     from birdshot.gui import MainWindow
     from birdshot.storage import Storage
@@ -63,10 +67,23 @@ def main() -> int:
     app.setStyle("Fusion")
 
     window = MainWindow(cfg, storage,
-                        lambda on_event: CameraEngine(cfg, storage, on_event),
+                        lambda on_event: backends.create_engine(
+                            cfg, storage, on_event, backend=args.backend),
                         auto=auto_summary)
     if args.tab and not window.select_tab(args.tab):
         print("no tab named %r" % args.tab, flush=True)
+
+    if args.screenshot:
+        from PyQt5.QtCore import QTimer as _ShotTimer
+
+        def _grab_and_quit():
+            ok = window.grab().save(args.screenshot)
+            print("screenshot%s: %s" % ("" if ok else " FAILED", args.screenshot),
+                  flush=True)
+            window.close()
+            app.quit()
+
+        _ShotTimer.singleShot(5000, _grab_and_quit)
 
     # Unattended runs get killed rather than closed -- a power-down, a reboot,
     # or a plain `pkill`. Qt never runs closeEvent for those, which would leave

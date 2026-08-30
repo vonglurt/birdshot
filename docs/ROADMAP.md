@@ -69,13 +69,18 @@ Two deployment stories, both first-class:
 
 - **Remote (as today):** `sync.sh` over SSH to the Pi stays the deployment
   path for the capture appliance.
-- **Local (new):** the same checkout runs directly on this Mac. That means
-  splitting `CameraEngine` behind a small backend interface:
-  `picamera2` backend (Pi), an OpenCV/AVFoundation backend (macOS, and
-  incidentally generic V4L2 Linux), and a file/replay backend so development
-  and tests never need hardware at all. Exposure control will be shallower off
-  the Pi — that is acceptable; the Mac target is development and preview, the
-  Pi is the instrument.
+- **Local (new):** the same checkout runs directly on this Mac.
+  **Started — the first slice is in:** `birdshot.backends` defines the engine
+  protocol and a factory (`create_engine`, `list_cameras`); `camera.py`
+  imports its hardware stack lazily and remains the picamera2 backend; and a
+  **synthetic backend** (generated sky + bird scene that responds to
+  exposure, driven by the *real* analysis gates and the real AE controller)
+  now runs the GUI and CLI capture on any machine with numpy. Verified on the
+  Mac: GUI opens, previews at 10 fps, AE settles, bursts write real JPEGs.
+  Still to come: an OpenCV/AVFoundation backend for real webcams (and
+  incidentally V4L2 Linux), and a file/replay backend for recorded footage.
+  Exposure control will be shallower off the Pi — acceptable; the Mac is for
+  development and preview, the Pi is the instrument.
 
 > The build, packaging and distribution side of this backlog now has its own
 > step-by-step implementation plan in [PACKAGING.md](PACKAGING.md), including

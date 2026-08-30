@@ -102,33 +102,25 @@ def _check_binaries(rows):
 
 def _check_cameras(rows):
     try:
-        from picamera2 import Picamera2
-        cams = Picamera2.global_camera_info()
-        if cams:
-            for i, info in enumerate(cams):
-                rows.append((OK, "camera[%d]" % i, "%s %s"
-                             % (info.get("Model", "?"), info.get("Id", ""))))
-        else:
-            rows.append((WARN, "cameras", "picamera2 present but no camera found"))
+        from birdshot import backends
+        cams = backends.list_cameras()
+    except Exception as exc:  # noqa: BLE001 -- numpy missing, most likely
+        rows.append((WARN, "cameras", "enumeration failed: %r" % exc))
         return
-    except Exception:  # noqa: BLE001
-        pass
-    if sys.platform.startswith("linux"):
-        try:
-            nodes = sorted(d for d in os.listdir("/dev") if d.startswith("video"))
-        except OSError:
-            nodes = []
-        if nodes:
-            rows.append((WARN, "cameras", "/dev/%s present but picamera2 is not"
-                         % ", /dev/".join(nodes)))
-        else:
-            rows.append((WARN, "cameras", "none visible (no picamera2, no /dev/video*)"))
-    elif sys.platform == "darwin":
-        rows.append((WARN, "cameras",
-                     "macOS backend not yet implemented (docs/ROADMAP.md) -- "
-                     "assemble/exif/sessions work, capture does not"))
-    else:
-        rows.append((WARN, "cameras", "no backend for this platform yet"))
+    real = [c for c in cams if c["backend"] != "synthetic"]
+    for i, c in enumerate(real):
+        rows.append((OK, "camera[%d]" % i, "%s %s (%s)"
+                     % (c["model"], c["id"], c["backend"])))
+    if not real:
+        detail = "no hardware camera; the synthetic backend will drive the GUI"
+        if sys.platform.startswith("linux"):
+            try:
+                nodes = sorted(d for d in os.listdir("/dev") if d.startswith("video"))
+            except OSError:
+                nodes = []
+            if nodes:
+                detail += " (/dev/%s present but unclaimed)" % ", /dev/".join(nodes)
+        rows.append((WARN, "cameras", detail))
 
 
 def _check_storage(rows, cfg):

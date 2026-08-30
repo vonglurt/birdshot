@@ -22,7 +22,7 @@ from birdshot.naming import describe_shutter, shutter_dir
 
 
 def _engine(cfg, on_event=None):
-    from birdshot.camera import CameraEngine
+    from birdshot import backends
     from birdshot.storage import Storage
 
     storage = Storage(cfg)
@@ -33,7 +33,7 @@ def _engine(cfg, on_event=None):
         if on_event:
             on_event(name, payload)
 
-    engine = CameraEngine(cfg, storage, handler)
+    engine = backends.create_engine(cfg, storage, handler)
     engine.start()
     return engine, storage, events
 
@@ -52,15 +52,20 @@ def _progress(name, payload):
 
 # ----------------------------------------------------------------------
 def cmd_info(args, cfg):
-    from picamera2 import Picamera2
+    from birdshot import backends
 
-    print("=== camera ===")
-    for i, info in enumerate(Picamera2.global_camera_info()):
-        print("  [%d] %s  %s" % (i, info.get("Model"), info.get("Id", "")))
-    p = Picamera2()
-    for m in p.sensor_modes:
-        print("  mode %-12s crop %s" % (m.get("size"), m.get("crop_limits")))
-    p.close()
+    print("=== cameras ===")
+    for c in backends.list_cameras():
+        print("  [%s:%d] %s  %s" % (c["backend"], c["index"], c["model"], c["id"]))
+    ok, why = backends.picamera2_available()
+    if ok:
+        from picamera2 import Picamera2
+        p = Picamera2()
+        for m in p.sensor_modes:
+            print("  mode %-12s crop %s" % (m.get("size"), m.get("crop_limits")))
+        p.close()
+    else:
+        print("  (picamera2 stack not available: %s)" % why)
 
     print("\n=== capture modes ===")
     for i, m in enumerate(CAPTURE_MODES):
@@ -240,10 +245,10 @@ def cmd_cascade(args, cfg):
         elif name == "error":
             print("  ERROR: %s" % payload.get("msg"), file=sys.stderr)
 
-    from birdshot.camera import CameraEngine
+    from birdshot import backends
     from birdshot.storage import Storage
     storage = Storage(cfg, on_event)
-    engine = CameraEngine(cfg, storage, on_event)
+    engine = backends.create_engine(cfg, storage, on_event)
     engine.start()
 
     t0 = time.time()

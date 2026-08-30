@@ -30,12 +30,24 @@ import traceback
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
-import simplejpeg
 
-from libcamera import Transform
-from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder
-from picamera2.outputs import FfmpegOutput
+# The hardware stack exists only on the Pi. Importing this module must work
+# everywhere (the backend factory in birdshot.backends needs to ask "is the
+# real engine available?"), so the imports are guarded and CameraEngine
+# refuses cleanly at construction instead of the module failing at import.
+try:
+    import simplejpeg
+    from libcamera import Transform
+    from picamera2 import Picamera2
+    from picamera2.encoders import H264Encoder
+    from picamera2.outputs import FfmpegOutput
+    HAVE_PICAMERA2 = True
+    PICAMERA2_ERROR: Optional[str] = None
+except ImportError as _exc:
+    HAVE_PICAMERA2 = False
+    PICAMERA2_ERROR = str(_exc)
+    simplejpeg = None          # type: ignore[assignment]
+    Transform = Picamera2 = H264Encoder = FfmpegOutput = None  # type: ignore
 
 from . import analysis
 from .analysis import FrameStats, analyse, focus_map, meter_only, refine_with_hires
@@ -145,6 +157,11 @@ class CameraEngine(threading.Thread):
     through the ``on_event`` callback as ``(name, payload)``."""
 
     def __init__(self, cfg, storage: Storage, on_event: Callable[[str, Dict[str, Any]], None]):
+        if not HAVE_PICAMERA2:
+            raise CameraConfigError(
+                "the picamera2 stack is not available here (%s) -- "
+                "use birdshot.backends.create_engine, which falls back to the "
+                "synthetic backend off the Pi" % PICAMERA2_ERROR)
         super().__init__(daemon=True, name="camera")
         self.cfg = cfg
         self.storage = storage

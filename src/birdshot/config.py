@@ -51,6 +51,11 @@ VIDEO_MODES = [
 
 DEFAULTS: Dict[str, Any] = {
     "version": 1,
+    # ---- backend -------------------------------------------------------
+    # Which engine drives capture: "auto" uses the real camera (picamera2)
+    # when the stack is importable and falls back to the synthetic sky
+    # otherwise; "picamera2" and "synthetic" force it. See birdshot.backends.
+    "backend": "auto",
     # ---- storage -------------------------------------------------------
     # Capture always lands on the eMMC (78 MB/s). The USB stick is NTFS over
     # a USB 2.0 port (~12 MB/s) and is only ever an offload target.

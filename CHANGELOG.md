@@ -8,6 +8,16 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **The backend split began** — new `birdshot.backends` package: the engine
+  protocol has a factory (`create_engine`) and camera enumeration
+  (`list_cameras`); `camera.py` guards its picamera2/libcamera imports and
+  stays the real backend; a new **synthetic backend** (a generated sky with a
+  flapping bird, exposure-responsive, run through the real analysis gates and
+  real AE controller) drives the GUI and CLI off the Pi. The GUI now runs on
+  macOS: `make run` opens it against the synthetic sky. New config key
+  `backend` (`auto`/`picamera2`/`synthetic`), new `birdshot-gui --backend`
+  and `--screenshot` flags; `doctor` and `info` report through the backend
+  layer.
 - **The build went standard** (`docs/PACKAGING.md` is the full plan):
   `pyproject.toml` is the one source of truth; `python -m build` (or
   `make dist`) produces the sdist + wheel every distribution channel
