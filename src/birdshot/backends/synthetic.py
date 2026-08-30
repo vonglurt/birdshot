@@ -45,7 +45,14 @@ SIM_LUX = 4000.0          # a bright overcast day, fed to the AE seed
 class SyntheticEngine(threading.Thread):
     """Same contract as CameraEngine: commands in via send(), events out via
     the callback, states idle/preview/burst/timelapse. Video and rapid modes
-    report a clean error instead of pretending."""
+    report a clean error instead of pretending.
+
+    Also the base class for other frame-source engines (the OpenCV webcam
+    backend subclasses it): a source overrides the hooks ``_acquire``,
+    ``_auto_expose``, ``_preview_rgb``, ``_capture_rgb``, ``_lux``,
+    ``_destination_label`` and ``_close_source`` while the command loop,
+    session lifecycle, analysis, preview publishing and frame writing stay
+    shared."""
 
     def __init__(self, cfg, storage: Storage,
                  on_event: Callable[[str, Dict[str, Any]], None]):
@@ -213,8 +220,10 @@ class SyntheticEngine(threading.Thread):
                 else:
                     time.sleep(0.05)
         except Exception as exc:  # noqa: BLE001
-            self._emit("error", {"msg": "synthetic engine died: %r" % exc,
+            self._emit("error", {"msg": "%s died: %r" % (self.name, exc),
                                  "fatal": True})
+        finally:
+            self._close_source()
 
     def _drain_commands(self) -> None:
         while True:
@@ -266,7 +275,7 @@ class SyntheticEngine(threading.Thread):
             self._exposure_us = int(self.cfg["manual_shutter_us"])
             self._gain = float(self.cfg["manual_gain"])
             return
-        seeded = self.controller.seed(SIM_LUX)
+        seeded = self.controller.seed(self._lux())
         if seeded:
             self._exposure_us, self._gain = seeded
 
@@ -283,22 +292,53 @@ class SyntheticEngine(threading.Thread):
         self._state = PREVIEW
 
     # ------------------------------------------------------------------
+    # frame-source hooks: what a subclass overrides to become a new backend
+    # ------------------------------------------------------------------
+    def _acquire(self, t: float) -> Optional[np.ndarray]:
+        """Grab the next luma frame with exposure already applied, or None."""
+        return self._expose(self._render(t))
+
+    def _auto_expose(self, stats, now: float):
+        """Run the AE loop and apply its decision. Returns the decision."""
+        if not self.cfg["auto_exposure"]:
+            return None
+        decision = self.controller.update(stats, self._exposure_us, self._gain,
+                                          lux=self._lux(), now=now)
+        if decision is not None:
+            self._exposure_us = decision.exposure_us
+            self._gain = decision.gain
+        return decision
+
+    def _preview_rgb(self, y8: np.ndarray) -> np.ndarray:
+        """Half-resolution RGB for the preview pane."""
+        return self._tint(y8)
+
+    def _capture_rgb(self, y8: np.ndarray) -> np.ndarray:
+        """Full-resolution RGB for saved frames."""
+        return np.repeat(y8[:, :, None], 3, axis=2)
+
+    def _lux(self) -> Optional[float]:
+        return SIM_LUX
+
+    def _destination_label(self) -> str:
+        return ("synthetic scene -> %s"
+                % os.path.basename(self.cfg["data_root"] or "local"))
+
+    def _close_source(self) -> None:
+        """Release whatever the frame source holds. The scene holds nothing."""
+
+    # ------------------------------------------------------------------
     def _tick(self) -> None:
         t0 = time.monotonic()
         t = t0 - self._t0
         cfg_dict = self._cfg_dict()
 
-        scene = self._render(t)
-        y8 = self._expose(scene)
+        y8 = self._acquire(t)
+        if y8 is None:
+            time.sleep(0.1)
+            return
         stats = analyse(y8, cfg_dict)
-
-        decision = None
-        if self.cfg["auto_exposure"]:
-            decision = self.controller.update(stats, self._exposure_us, self._gain,
-                                              lux=SIM_LUX, now=t0)
-            if decision is not None:
-                self._exposure_us = decision.exposure_us
-                self._gain = decision.gain
+        decision = self._auto_expose(stats, t0)
 
         wrote = False
         if self._state == BURST:
@@ -319,8 +359,7 @@ class SyntheticEngine(threading.Thread):
         time.sleep(max(0.0, 0.05 - (time.monotonic() - t0)))
 
     def _write_frame(self, y8: np.ndarray, stats, decision) -> bool:
-        rgb = np.repeat(y8[:, :, None], 3, axis=2)
-        jpeg = self._encode_jpeg(rgb)
+        jpeg = self._encode_jpeg(self._capture_rgb(y8))
         if jpeg is None:
             if not self._encoder_missing_said:
                 self._encoder_missing_said = True
@@ -345,7 +384,7 @@ class SyntheticEngine(threading.Thread):
         if now - self._last_preview < 0.1:  # same ~10 fps cap as the real engine
             return
         self._last_preview = now
-        rgb = self._tint(y8)
+        rgb = self._preview_rgb(y8)
 
         if now - self._last_latest >= 1.0:
             self._last_latest = now
@@ -376,7 +415,7 @@ class SyntheticEngine(threading.Thread):
             "decision": decision,
             "shutter_us": self._exposure_us,
             "gain": self._gain,
-            "lux": SIM_LUX,
+            "lux": self._lux(),
             "state": self._state,
             "taken": self._taken,
             "target": self._target_frames,
@@ -387,6 +426,5 @@ class SyntheticEngine(threading.Thread):
             "interval": (float(self.cfg["timelapse_interval_s"])
                          if self._state == TIMELAPSE else None),
             "last_file": self._last_written,
-            "destination": "synthetic scene -> %s"
-                           % os.path.basename(self.cfg["data_root"] or "local"),
+            "destination": self._destination_label(),
         })

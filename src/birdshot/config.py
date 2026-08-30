@@ -56,6 +56,9 @@ DEFAULTS: Dict[str, Any] = {
     # when the stack is importable and falls back to the synthetic sky
     # otherwise; "picamera2" and "synthetic" force it. See birdshot.backends.
     "backend": "auto",
+    # Which device within the backend: Picamera2 camera number, or the
+    # OpenCV/AVFoundation device index. The GUI's camera selector sets both.
+    "camera_index": 0,
     # ---- storage -------------------------------------------------------
     # Capture always lands on the eMMC (78 MB/s). The USB stick is NTFS over
     # a USB 2.0 port (~12 MB/s) and is only ever an offload target.

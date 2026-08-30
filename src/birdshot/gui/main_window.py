@@ -65,6 +65,8 @@ class MainWindow(QMainWindow):
 
         self.bridge = EngineBridge()
         self.bridge.event.connect(self._on_event)
+        # Kept so the camera selector can rebuild the engine on a new device.
+        self._engine_factory = engine_factory
         self.engine = engine_factory(self._emit_event)
 
         self._counts = {"ok": 0, "dark": 0, "blown": 0, "empty": 0}
@@ -507,6 +509,23 @@ class MainWindow(QMainWindow):
         box = QGroupBox()
         v = QVBoxLayout(box)
 
+        rowc = QHBoxLayout()
+        rowc.addWidget(QLabel("camera"))
+        self.cmb_camera = QComboBox()
+        self.cmb_camera.setToolTip(
+            "Which device drives capture. 'Synthetic sky' is the built-in\n"
+            "demo scene -- no hardware needed. Picking a webcam opens it\n"
+            "(macOS may ask for camera permission the first time).")
+        rowc.addWidget(self.cmb_camera, 1)
+        btn_rescan = QPushButton("rescan")
+        btn_rescan.setToolTip("Look for cameras again, after plugging one in.")
+        btn_rescan.clicked.connect(self._populate_cameras)
+        rowc.addWidget(btn_rescan)
+        v.addLayout(rowc)
+        self._populate_cameras()
+        # activated fires only on a user pick, never on programmatic updates.
+        self.cmb_camera.activated.connect(self._switch_camera)
+
         self.tuner = ModeTuner(self.MODES, int(self.cfg.get("shoot_mode", 0)))
         self.tuner.changed.connect(self._mode_changed)
         v.addWidget(self.tuner)
@@ -699,6 +718,57 @@ class MainWindow(QMainWindow):
 
     def _fullscreen_closed(self) -> None:
         self._fullscreen = None
+
+    # ---- camera selection --------------------------------------------
+    def _populate_cameras(self) -> None:
+        from birdshot import backends
+        self._cameras = backends.list_cameras()
+        current = backends.resolve_choice(self.cfg)
+        self.cmb_camera.blockSignals(True)
+        self.cmb_camera.clear()
+        selected = len(self._cameras) - 1        # synthetic is always last
+        for i, cam in enumerate(self._cameras):
+            label = (cam["model"] if cam["backend"] == "synthetic"
+                     else "%s  (%s)" % (cam["model"], cam["backend"]))
+            self.cmb_camera.addItem(label)
+            if (cam["backend"], cam["index"]) == current:
+                selected = i
+        self.cmb_camera.setCurrentIndex(selected)
+        self.cmb_camera.blockSignals(False)
+
+    def _switch_camera(self, i: int) -> None:
+        """Tear the engine down and rebuild it on the picked device."""
+        from birdshot import backends
+        if not (0 <= i < len(self._cameras)):
+            return
+        cam = self._cameras[i]
+        if ((cam["backend"], cam["index"]) == backends.resolve_choice(self.cfg)
+                and self.engine.is_alive()):
+            return
+        previous = (self.cfg.get("backend"), int(self.cfg.get("camera_index", 0)))
+        self.cfg["backend"] = cam["backend"]
+        self.cfg["camera_index"] = cam["index"]
+        self._save()
+
+        old = self.engine
+        try:
+            old.send("stop")
+            old.shutdown()
+            old.join(timeout=10)
+        except Exception:  # noqa: BLE001 -- a wedged engine must not block the swap
+            pass
+        try:
+            backends.warm_up(self.cfg)   # we ARE the main thread here
+            self.engine = self._engine_factory(self._emit_event)
+        except Exception as exc:  # noqa: BLE001
+            self.cfg["backend"], self.cfg["camera_index"] = previous
+            self._save()
+            self.banner.setText("could not open %s: %s" % (cam["model"], exc))
+            self.banner.setVisible(True)
+            self.engine = self._engine_factory(self._emit_event)
+            self._populate_cameras()
+        self.engine.start()
+        self.engine.send("preview")
 
     def _build_readout(self) -> QWidget:
         """One compact line. The detail lives in the HUD drawn on the image.

@@ -292,7 +292,9 @@ class CameraEngine(threading.Thread):
         tuning = tone.build_tuning(self.cfg)
         if tuning is not None:
             self._emit("state", {"tone": self.cfg.get("tone_curve")})
-        self._cam = Picamera2(tuning=tuning) if tuning else Picamera2()
+        cam_num = int(self.cfg.get("camera_index", 0) or 0)
+        self._cam = (Picamera2(cam_num, tuning=tuning) if tuning
+                     else Picamera2(cam_num))
         lores = LORES_SIZE
         # lores must not exceed main, and libcamera wants even dimensions.
         lw = min(lores[0], size[0]) & ~1

@@ -8,6 +8,15 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **Camera selection landed** — a camera dropdown (+ rescan) at the top of
+  the Shoot tab: Pi cameras, webcams by name (new **opencv backend**:
+  AVFoundation on macOS, V4L2 on Linux — the device owns exposure, our
+  gates still judge the frames), and the synthetic demo scene, switchable
+  live; the choice persists as `backend`/`camera_index`. CLI grew
+  `--backend`/`--camera`; the real engine honours `camera_index` too.
+  macOS camera consent is requested on the main thread (`backends.warm_up`)
+  so the engine thread never trips over the permission dialog. `auto` still
+  never opens a webcam uninvited — a webcam is only used when picked.
 - **The backend split began** — new `birdshot.backends` package: the engine
   protocol has a factory (`create_engine`) and camera enumeration
   (`list_cameras`); `camera.py` guards its picamera2/libcamera imports and

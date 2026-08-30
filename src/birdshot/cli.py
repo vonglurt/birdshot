@@ -33,6 +33,7 @@ def _engine(cfg, on_event=None):
         if on_event:
             on_event(name, payload)
 
+    backends.warm_up(cfg)   # macOS camera permission wants the main thread
     engine = backends.create_engine(cfg, storage, handler)
     engine.start()
     return engine, storage, events
@@ -929,6 +930,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config")
+    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "synthetic"],
+                    help="camera backend (default: config, then auto)")
+    ap.add_argument("--camera", type=int, metavar="N",
+                    help="device index within the backend (see 'info')")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("info").set_defaults(fn=cmd_info)
@@ -992,6 +997,10 @@ def main():
 
     args = ap.parse_args()
     cfg = Config(args.config) if args.config else Config()
+    if args.backend:
+        cfg["backend"] = args.backend
+    if args.camera is not None:
+        cfg["camera_index"] = args.camera
     return args.fn(args, cfg)
 
 

@@ -26,7 +26,7 @@ def main() -> int:
                     help="open windowed instead of filling the screen")
     ap.add_argument("--fullscreen", action="store_true",
                     help="open with no window decorations at all")
-    ap.add_argument("--backend", choices=["auto", "picamera2", "synthetic"],
+    ap.add_argument("--backend", choices=["auto", "picamera2", "opencv", "synthetic"],
                     help="camera backend (default: config, then auto)")
     ap.add_argument("--screenshot", metavar="PATH",
                     help="save a window grab a few seconds after startup and "
@@ -48,6 +48,10 @@ def main() -> int:
     cfg = Config(args.config) if args.config else Config()
     if args.data_root:
         cfg["data_root"] = args.data_root
+    # Applied to config (not passed per-call) so the in-GUI camera selector
+    # can change it later without the flag overriding every rebuild.
+    if args.backend:
+        cfg["backend"] = args.backend
 
     auto_summary = None
     if args.auto:
@@ -61,6 +65,7 @@ def main() -> int:
     cfg.save()
 
     storage = Storage(cfg)
+    backends.warm_up(cfg)   # macOS camera-permission dialog needs main thread
 
     app = QApplication(sys.argv)
     app.setApplicationName("birdshot")
@@ -68,7 +73,7 @@ def main() -> int:
 
     window = MainWindow(cfg, storage,
                         lambda on_event: backends.create_engine(
-                            cfg, storage, on_event, backend=args.backend),
+                            cfg, storage, on_event),
                         auto=auto_summary)
     if args.tab and not window.select_tab(args.tab):
         print("no tab named %r" % args.tab, flush=True)

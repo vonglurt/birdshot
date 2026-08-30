@@ -54,14 +54,19 @@ not block the 1.1 work below.
 
 ## Backlog for the next release candidate — v1.1.0-rc1 “The Chickens Are Restless”
 
-### 1. Camera selection
+### 1. Camera selection — **done** (pending on-Pi verification)
 
-Today the engine assumes the one IMX477. Next version:
-
-- Enumerate available system cameras at startup (`Picamera2.global_camera_info()`
-  on the Pi; AVFoundation device list on macOS).
-- A **dropdown in the GUI** to pick the camera, a `--camera` flag for the CLI,
-  and the choice persisted per-profile in `~/.config/birdshot`.
+- `backends.list_cameras()` enumerates Pi cameras (picamera2), webcams by
+  name (AVFoundation via `system_profiler` on macOS, V4L2 sysfs on Linux)
+  and the synthetic demo scene — without opening any device.
+- The GUI's Shoot tab has the **camera dropdown** (+ rescan); picking a
+  device persists `backend`/`camera_index` to the config and rebuilds the
+  engine live. The CLI grew `--backend` and `--camera N`.
+- macOS camera consent is requested on the main thread (`backends.warm_up`)
+  so the engine never trips over the permission dialog.
+- Verified on the Mac: FaceTime HD Camera enumerated by name, selected, and
+  previewing live through the real analysis gates. Multi-camera on the Pi
+  still needs hardware verification.
 
 ### 2. Cross-platform: run on the Mac, keep the Pi deploy
 
