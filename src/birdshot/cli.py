@@ -411,10 +411,18 @@ def cmd_selftest(args, cfg):
 
     failures = []
 
+    class Skip(Exception):
+        """This machine cannot run the check's subject at all (an optional
+        module or the instrument itself is absent). A skip states the gap and
+        how to close it; it is not a pass and never hides a real failure --
+        anything the machine CAN run still asserts."""
+
     def check(label, fn):
         try:
             detail = fn()
             print("  PASS  %-34s %s" % (label, detail or ""))
+        except Skip as why:
+            print("  SKIP  %-34s %s" % (label, why))
         except Exception as exc:  # noqa: BLE001
             print("  FAIL  %-34s %r" % (label, exc))
             failures.append(label)
@@ -665,17 +673,27 @@ def cmd_selftest(args, cfg):
         from birdshot.naming import timestamp_name
         ok, backend = exifmod.available()
         if not ok:
-            raise AssertionError(backend)
+            raise Skip(backend)
 
         tmp = tempfile.mkdtemp()
         c = Config("/tmp/birdshot-selftest.json")
         c["data_root"] = tmp; c["offload_to_usb"] = False; c["cascade_enabled"] = False
         c["exif_focal_mm"] = 16.0; c["exif_fnumber"] = 2.8; c["exif_lens"] = "C-mount 16mm"
         # A minimal but real JPEG, so piexif has something valid to splice into.
-        import numpy as np, simplejpeg
-        jpg = simplejpeg.encode_jpeg(
-            np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8), quality=80,
-            colorspace="RGB")
+        import numpy as np
+        rgb = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        try:
+            import simplejpeg
+            jpg = simplejpeg.encode_jpeg(rgb, quality=80, colorspace="RGB")
+        except ImportError:
+            try:
+                import io
+                from PIL import Image
+                out = io.BytesIO()
+                Image.fromarray(rgb).save(out, "JPEG", quality=80)
+                jpg = out.getvalue()
+            except ImportError:
+                raise Skip("no JPEG encoder here (simplejpeg or Pillow)")
         s2 = Storage(c); s2.start_session("sess")
         st = FrameStats(verdict="ok", p50=46.0, meter=47.0, sharpness_norm=14.9)
         p = s2.write_frame(jpg, 1956, 1.939, 9, st)
@@ -893,6 +911,9 @@ def cmd_selftest(args, cfg):
         # Every other preset must produce a patched, monotonic 33-point curve
         # anchored at pure black and pure white -- including with a lift applied,
         # which used to float the whole curve off zero and grey out the blacks.
+        # The ISP patch needs the Pi's libcamera tuning file; off the Pi the
+        # correct behaviour is to decline (None), never to invent a tuning.
+        on_pi = tone.tuning_path() is not None
         for kind in ("linear", "gamma", "contrast", "lift"):
             c["tone_curve"] = kind
             c["tone_lift"] = 0.18 if kind == "lift" else 0.0
@@ -901,6 +922,9 @@ def cmd_selftest(args, cfg):
             assert all(ys[i] <= ys[i + 1] + 1e-9 for i in range(len(ys) - 1)), \
                 "%s is not monotonic" % kind
             t = tone.build_tuning(c)
+            if not on_pi:
+                assert t is None, "%s built a tuning with no tuning file" % kind
+                continue
             assert t is not None, kind
             algos = t["algorithms"] if isinstance(t.get("algorithms"), list) else [t]
             flat = None
@@ -932,7 +956,7 @@ def cmd_selftest(args, cfg):
         assert all(gaps[i] >= gaps[i + 1] - 1e-9 for i in range(len(gaps) - 1)), gaps
         stock_gaps = [sy[i + 1] - sy[i] for i in range(len(sy) - 5, len(sy) - 1)]
         assert gaps[-1] < stock_gaps[-1], "whites are not being rounded off"
-        assert tone.build_tuning(c) is not None
+        assert (tone.build_tuning(c) is not None) == on_pi
 
         # The LUT exists for offline use and must be monotonic 0..255.
         c["tone_curve"] = "stock"
@@ -941,7 +965,10 @@ def cmd_selftest(args, cfg):
         assert all(lut[i] <= lut[i + 1] for i in range(255))
         c["tone_curve"] = "stock"; c.save()
         os.unlink("/tmp/birdshot-selftest-tone.json")
-        return "ISP curve verified, 5 presets anchored at black and white"
+        return ("ISP curve verified, 5 presets anchored at black and white"
+                if on_pi else
+                "curve math verified; ISP patching declines without the Pi's "
+                "tuning file (correct off-instrument)")
     check("tone curve", t_tone)
 
     def t_yuv():
