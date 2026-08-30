@@ -102,10 +102,15 @@ class PreviewWidget(QWidget):
     def set_bird(self, bbox, label: str, take: bool = False,
                  ttl: float = 1.6) -> None:
         """Show Bird Flight's subject box for a moment. ``bbox`` is
-        (x0, y0, x1, y1) in the luma plane the detector judged."""
+        (x0, y0, x1, y1) in the luma plane the detector judged. A take turns
+        the box green and it stays green while per-frame updates keep the
+        position current."""
         import time as _time
-        self._bird = (tuple(bbox), label, bool(take),
-                      _time.monotonic() + ttl) if bbox else None
+        now = _time.monotonic()
+        if take:
+            self._bird_take_until = now + 1.6
+        green = take or now < getattr(self, "_bird_take_until", 0.0)
+        self._bird = (tuple(bbox), label, green, now + ttl) if bbox else None
         self.update()
 
     def reset_focus_peak(self) -> None:

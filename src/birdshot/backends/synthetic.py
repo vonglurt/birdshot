@@ -99,6 +99,7 @@ class SyntheticEngine(threading.Thread):
         self._bf_next_ok = 0.0
         self._bf_takes = 0
         self._bf_last_report = 0.0
+        self._bf_live = None    # newest sighting, riding the preview payload
 
         self._t0 = time.monotonic()
         self._cfg_cache: Dict[str, Any] = {}
@@ -309,6 +310,7 @@ class SyntheticEngine(threading.Thread):
             self._exposure_us, self._gain = seeded
 
     def _stop_activity(self) -> None:
+        self._bf_live = None
         if self._state in (BURST, TIMELAPSE, BIRDFLIGHT):
             summary = self.storage.close_session()
             self.controller.persist()
@@ -393,6 +395,7 @@ class SyntheticEngine(threading.Thread):
     def _tick_birdflight(self, y8, stats, decision, now: float) -> bool:
         """One Bird Flight step: judge the frame, manage bursts and cooldown."""
         sighting = self._detector.update(y8)
+        self._bf_live = sighting
 
         if (sighting.take and self._bf_burst_left == 0
                 and now >= self._bf_next_ok):
@@ -470,9 +473,14 @@ class SyntheticEngine(threading.Thread):
             cy, cx = H // 2, W // 2
             focus_view = y8[cy - 128:cy + 128, cx - 128:cx + 128].copy()
 
+        # The live sighting rides the preview so the GUI's subject box tracks
+        # at display rate; the 1/s "bird" events stay the judging record.
+        live = self._bf_live
         self._emit("preview", {
             "rgb": rgb,
             "y": y8,
+            "bird": (live.to_dict() if self._state == BIRDFLIGHT
+                     and live is not None and live.present else None),
             "focus_view": focus_view,
             "focus_map": fmap,
             "focus_best": fbest,

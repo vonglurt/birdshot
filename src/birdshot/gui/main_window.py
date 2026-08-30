@@ -262,6 +262,12 @@ class MainWindow(QMainWindow):
         stats = payload.get("stats")
         self.preview.sky_zone_frac = float(self.cfg["sky_zone_frac"])
         self.preview.set_frame(payload.get("rgb"), payload.get("y"), stats)
+        live = payload.get("bird")
+        if live and live.get("bbox"):
+            self.preview.set_bird(
+                live["bbox"], "sharp %.1f · %.2f%%"
+                % (live.get("sharpness", 0.0),
+                   100.0 * live.get("area_frac", 0.0)), ttl=0.5)
         self.histogram.target = float(self.cfg["target_luma"])
         self.histogram.set_frame(payload.get("y"), stats)
 

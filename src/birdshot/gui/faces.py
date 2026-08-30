@@ -499,8 +499,12 @@ class FieldFace(QWidget):
                                      "color:#93a3ad;border:none;")
         rv.addWidget(self.lbl_takes)
 
-        self.tuner = ModeTuner(win.MODES, int(win.cfg.get("shoot_mode", 0)),
-                               font_px=10)
+        # Same modes, same order, shorter names -- 380 px must hold all five.
+        compact = [(label.replace("Timelapse", "Lapse")
+                    .replace("Bird Flight", "Bird"), key, hint)
+                   for label, key, hint in win.MODES]
+        self.tuner = ModeTuner(compact, int(win.cfg.get("shoot_mode", 0)),
+                               font_px=11)
         self.tuner.changed.connect(win.tuner.set_index)
         rv.addWidget(self.tuner)
 
