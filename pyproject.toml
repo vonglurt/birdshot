@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# The one source of truth for building birdshot (docs/PACKAGING.md, Phase 1).
+# Every distribution channel -- apk, deb, rpm, Flatpak, Homebrew, pip -- is a
+# thin adapter over `python -m build` of this file. Keep dependencies here and
+# nowhere else.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "birdshot"
+description = "Bird and sky capture for the Raspberry Pi HQ Camera"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Paul Richeson"}]
+# Floor: Python 3.9 / Debian 11 bullseye, the deployed instrument's OS.
+requires-python = ">=3.9"
+# The only hard dependency, by design (Phase 0.3): everything else is an
+# extra and the program degrades politely without it.
+dependencies = ["numpy>=1.19"]
+dynamic = ["version"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics :: Capture :: Digital Camera",
+]
+
+[project.optional-dependencies]
+# The camera itself. Only installable where libcamera exists (the Pi); distro
+# packages are preferred there -- see install.sh.
+pi = ["picamera2>=0.3.12", "simplejpeg"]
+# EXIF writing in-process; exiftool remains the fallback backend without it.
+exif = ["piexif"]
+# The GUI. PyQt5 is GPLv3 -- imports are confined to birdshot.gui, see
+# docs/PACKAGING.md Phase 8 and THIRD-PARTY.md.
+gui = ["PyQt5>=5.15"]
+full = ["birdshot[pi,exif,gui]"]
+
+[project.scripts]
+birdshot-cli = "birdshot.cli:main"
+birdshot-gui = "birdshot.gui.app:main"
+birdshot-wallpaper = "birdshot.wallpaper:main"
+
+[project.urls]
+Homepage = "https://birdshot.org"
+Source = "https://github.com/vonglurt/birdshot"
+Changelog = "https://github.com/vonglurt/birdshot/blob/main/CHANGELOG.md"
+Releases = "https://github.com/vonglurt/birdshot/releases"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "birdshot.__version__"}

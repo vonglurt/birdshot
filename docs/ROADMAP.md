@@ -77,6 +77,11 @@ Two deployment stories, both first-class:
   the Pi — that is acceptable; the Mac target is development and preview, the
   Pi is the instrument.
 
+> The build, packaging and distribution side of this backlog now has its own
+> step-by-step implementation plan in [PACKAGING.md](PACKAGING.md), including
+> the copal flagship channel, licensing, versioning policy and the long-term
+> maintenance structure. Items 3 and 4 below are tracked there in detail.
+
 ### 3. Install script and the copal system
 
 birdshot becomes installable by the **copal** provisioning system (the Linux VM

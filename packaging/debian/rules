@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# Standard pybuild over pyproject.toml (docs/PACKAGING.md, Phase 4.2).
+# Targets bookworm and later; on the bullseye Pi the supported route is the
+# checkout + sync.sh, so nothing here needs backporting.
+
+export PYBUILD_NAME = birdshot
+
+%:
+	dh $@ --buildsystem=pybuild
+
+execute_after_dh_auto_install:
+	install -Dm644 packaging/share/birdshot.desktop \
+		debian/birdshot/usr/share/applications/birdshot.desktop

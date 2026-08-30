@@ -8,6 +8,23 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **The build went standard** (`docs/PACKAGING.md` is the full plan):
+  `pyproject.toml` is the one source of truth; `python -m build` (or
+  `make dist`) produces the sdist + wheel every distribution channel
+  consumes. Version bumped to `1.1.0.dev0` — `main` is now the 1.1 line.
+- The launchers moved into the package (`birdshot.cli`, `birdshot.gui.app`,
+  `birdshot.wallpaper`); `bin/*` are thin wrappers, so a bare checkout and
+  `sync.sh` behave exactly as before.
+- New `birdshot-cli doctor`: a pass/warn/fail install checklist (platform,
+  deps, cameras, storage, config) with `--json` for installers and
+  `--write-config`. New `install.sh`: detects apk/apt/dnf/brew, installs
+  distro dependencies, pip-installs birdshot, ends by running doctor.
+- New `packaging/`: Alpine APKBUILD (the copal flagship channel), Debian
+  dh+pybuild, RPM spec, Flatpak manifest, Homebrew formula, FreeBSD port
+  skeleton, and a shared desktop entry.
+- New `.github/workflows/release.yml`: every `v*` tag re-runs `make check`,
+  builds the artifacts and attaches them to the GitHub Release.
+
 - Adopted a release system: semver + a codename per minor version, signed
   tags, a GitHub Release (pre-release for `-rcN`) per tag. `1.0.x` is
   retroactively codenamed **Cow Tools** and designated the alpha prototype /

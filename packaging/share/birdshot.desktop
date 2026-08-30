@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT — Copyright (c) 2026 Paul Richeson
+[Desktop Entry]
+Type=Application
+Name=birdshot
+GenericName=Camera
+Comment=Bird and sky capture for the Raspberry Pi HQ Camera
+Exec=birdshot-gui
+Icon=camera-photo
+Terminal=false
+Categories=Graphics;Photography;
+Keywords=camera;capture;timelapse;bird;sky;

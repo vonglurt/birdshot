@@ -4,6 +4,10 @@ __pycache__/
 *.egg-info/
 .venv/
 
+# `make dist` output -- releases are built by CI, never committed
+dist/
+build/
+
 # macOS
 .DS_Store
 

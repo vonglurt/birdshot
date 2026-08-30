@@ -1,0 +1,7 @@
+Bird and sky capture for the Raspberry Pi HQ Camera: metered auto-exposure,
+quality gates, a tiered storage cascade, EXIF tagging and timelapse assembly.
+On FreeBSD the headless tools are the useful surface (sessions, assemble,
+exif, doctor); live capture requires a camera backend that does not exist
+here yet.
+
+WWW: https://birdshot.org

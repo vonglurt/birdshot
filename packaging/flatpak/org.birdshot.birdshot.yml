@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# Flatpak adapter (docs/PACKAGING.md, 4.4): the "any desktop Linux, no root"
+# channel. The KDE runtime supplies Qt; PyQt5 and numpy arrive as pip modules
+# inside the sandbox (flatpak bundles them, so the combined work is conveyed
+# under GPLv3 terms -- fine, MIT is GPL-compatible; see Phase 8.2).
+#
+# Flathub submission waits until the cross-platform backend split lands
+# (docs/ROADMAP.md) so the GUI is useful without a Pi camera. Build locally:
+#   flatpak-builder --user --install build packaging/flatpak/org.birdshot.birdshot.yml
+
+app-id: org.birdshot.birdshot
+runtime: org.kde.Platform
+runtime-version: '5.15-23.08'
+sdk: org.kde.Sdk
+command: birdshot-gui
+finish-args:
+  - --socket=x11
+  - --socket=wayland
+  - --device=all            # cameras
+  - --filesystem=xdg-pictures
+  - --filesystem=~/birdshot-data:create
+
+modules:
+  # TODO before first real build: generate pinned pip sources with
+  # flatpak-pip-generator (numpy, PyQt5, piexif) -- network is off in the
+  # sandbox, so the generator's per-wheel sources replace this placeholder.
+  - name: birdshot
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-deps .
+      - install -Dm644 packaging/share/birdshot.desktop
+        /app/share/applications/org.birdshot.birdshot.desktop
+    sources:
+      - type: git
+        url: https://github.com/vonglurt/birdshot.git
+        tag: v1.1.0-rc1   # bump with the release

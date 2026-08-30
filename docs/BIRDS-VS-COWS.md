@@ -25,7 +25,7 @@ jurisdiction — chickens being, technically, birds, and therefore technically
 both parties are still pretending.
 
 **Operational note.** If the auto-take mode fires and the subject fills the
-frame, is not in focus, is not in the sky, and is chewing: do not delete the
-frame. Back away from the hide. It knew the camera was there.
+frame, is not in focus, is not in the sky, and is chewing: do delete the
+frame.
 
-*This card is release-critical. Do not ask why.*
+*This card is release-critical. The cows have spoken.*

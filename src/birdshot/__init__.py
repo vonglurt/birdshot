@@ -13,4 +13,6 @@ Modules:
     gui         PyQt5 front end
 """
 
-__version__ = "1.0.0-rc1"
+# main is the 1.1 line ("The Chickens Are Restless"); 1.0.0 final is cut from
+# the v1.0.0-rc1 tag once the on-hardware selftest passes. PEP 440 spelling.
+__version__ = "1.1.0.dev0"

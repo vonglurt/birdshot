@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# On every v* tag: re-run the gate, build the canonical sdist + wheel, and
+# attach them to the tag's GitHub Release (creating it, as a pre-release for
+# rc/dev tags, if the tag arrived without one). The Release page is the
+# download point every packaging/ channel's source= URL consumes.
+# docs/PACKAGING.md, Phase 5.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: gate
+        run: make check
+
+      - name: build sdist and wheel
+        run: |
+          python -m pip install --quiet build
+          python -m build
+          sha256sum dist/*
+
+      - name: ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            case "$tag" in
+              *-rc*|*dev*) pre=--prerelease ;;
+              *)           pre= ;;
+            esac
+            gh release create "$tag" $pre --verify-tag \
+              --title "birdshot $tag" --generate-notes
+          fi
+
+      - name: attach artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

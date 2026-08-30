@@ -9,10 +9,10 @@
 SHELL := /usr/bin/env bash
 PY_SRC := $(shell find src -name '*.py' 2>/dev/null)
 BIN_SRC := bin/birdshot-cli bin/birdshot-gui bin/birdshot-wallpaper
-SH_SRC := sync.sh $(wildcard mac/*.sh) .githooks/pre-commit
+SH_SRC := sync.sh install.sh $(wildcard mac/*.sh) .githooks/pre-commit
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint sanitise audit-history deps vendor-check hooks selftest info clean
+.PHONY: help check lint sanitise audit-history deps vendor-check hooks dist doctor selftest info clean
 
 help:
 	@echo 'birdshot -- make targets'
@@ -24,6 +24,8 @@ help:
 	@echo '  make deps           list third-party imports and external binaries'
 	@echo '  make vendor-check   verify vendor/ manifests against their hashes'
 	@echo '  make hooks          install the sanitisation pre-commit hook'
+	@echo '  make dist           build the sdist + wheel every channel consumes'
+	@echo '  make doctor         check this machine: deps, cameras, storage'
 	@echo
 	@echo '  make selftest       run the on-camera selftest on the Pi (needs hardware)'
 	@echo '  make info           camera, modes, storage and calibration, from the Pi'
@@ -127,6 +129,15 @@ vendor-check:
 hooks:
 	@git config core.hooksPath .githooks
 	@echo 'pre-commit sanitisation gate installed (core.hooksPath = .githooks)'
+
+# The canonical build (docs/PACKAGING.md, Phase 1): one sdist + wheel that
+# every packaging/ channel consumes. Needs `python3 -m pip install build`.
+dist: check
+	@python3 -m build
+	@ls -la dist
+
+doctor:
+	@./bin/birdshot-cli doctor
 
 # ------------------------------------------------------------ the hardware --
 selftest:
