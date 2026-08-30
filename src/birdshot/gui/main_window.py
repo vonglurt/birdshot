@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
         elif name == "encode_stage":
             self.lbl_encode_status.setText("%s..." % payload.get("stage"))
             self._log("encode: %s" % payload.get("stage"))
+        elif name == "bird":
+            self._on_bird(payload)
         elif name == "rapid":
             self._on_rapid(payload)
         elif name == "cascade":
@@ -302,6 +304,10 @@ class MainWindow(QMainWindow):
         self.btn_collect.setText("STOP COLLECTING" if state == "burst"
                                  else "COLLECT  -  full res, fastest rate")
         self.btn_timelapse.setChecked(state == "timelapse")
+        if hasattr(self, "btn_bird"):
+            self.btn_bird.setChecked(state == "birdflight")
+            if state != "birdflight" and hasattr(self, "lbl_bird"):
+                self.lbl_bird.setText("idle")
         self.btn_timelapse.setText("Stop timelapse" if state == "timelapse"
                                    else "Start timelapse")
         self.btn_record.setChecked(state == "video")
@@ -412,6 +418,8 @@ class MainWindow(QMainWindow):
             section("Rapid - fastest, flat filenames", self._rapid_page),
             section("Timelapse", self._tab_timelapse()),
             section("Video", self._tab_video()),
+            section("Bird Flight - auto-take, sharp against sky",
+                    self._tab_birdflight()),
         ])
         image = self._stack([
             section("Exposure and tone", self._tab_exposure(), expanded=True),
@@ -502,6 +510,8 @@ class MainWindow(QMainWindow):
         ("Rapid", "rapid", "fastest: flat YYYYMMDDHHMMSScc names, no gates"),
         ("Timelapse", "timelapse", "one frame every N seconds"),
         ("Video", "video", "H.264 to MP4, hardware encoder"),
+        ("Bird Flight", "birdflight",
+         "watch the sky; burst when a bird is sharp against it"),
     ]
 
     def _mode_header(self) -> QWidget:
@@ -593,7 +603,7 @@ class MainWindow(QMainWindow):
         they are simply no longer shown.
         """
         for name in ("btn_collect", "btn_rapid", "btn_timelapse", "btn_record",
-                     "btn_cascade_go"):
+                     "btn_cascade_go", "btn_bird"):
             b = getattr(self, name, None)
             if b is not None:
                 b.setVisible(False)
@@ -642,13 +652,13 @@ class MainWindow(QMainWindow):
         self._refresh_go_button()
 
     def _step_mode(self, delta: int) -> None:
-        if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video"):
+        if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video", "birdflight"):
             return          # never switch mode mid-capture
         self.tuner.step(delta)
 
     def _refresh_go_button(self) -> None:
         state = self.engine.state
-        running = state in ("burst", "rapid", "drain", "timelapse", "video")
+        running = state in ("burst", "rapid", "drain", "timelapse", "video", "birdflight")
         label = self.MODES[max(0, min(int(self.cfg.get("shoot_mode", 0)),
                                       len(self.MODES) - 1))][0]
         self.btn_go.setChecked(running)
@@ -659,13 +669,14 @@ class MainWindow(QMainWindow):
             "background:%s;color:white;}" % ("#a03020" if running else "#1f7a3f"))
 
     def _go_clicked(self) -> None:
-        if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video"):
+        if self.engine.state in ("burst", "rapid", "drain", "timelapse", "video", "birdflight"):
             self.engine.send("stop")
             return
         key = self.MODES[max(0, min(int(self.cfg.get("shoot_mode", 0)),
                                     len(self.MODES) - 1))][1]
         {"burst": self._toggle_collect, "rapid": self._toggle_rapid,
-         "timelapse": self._toggle_timelapse, "video": self._toggle_record}[key]()
+         "timelapse": self._toggle_timelapse, "video": self._toggle_record,
+         "birdflight": self._toggle_birdflight}[key]()
 
     def _outdoor_toggled(self, on: bool) -> None:
         self.preview.outdoor = on
@@ -1730,6 +1741,71 @@ class MainWindow(QMainWindow):
         v.addStretch(1)
         return page
 
+    def _tab_birdflight(self) -> QWidget:
+        """Capture Bird Flight: the auto-take gates and what a take does."""
+        page = QWidget()
+        v = QVBoxLayout(page)
+
+        v.addWidget(QLabel(
+            "Watches the preview for a dark subject surrounded by bright sky\n"
+            "(blue or white), sharp along its boundary and well inside the\n"
+            "frame. When every gate passes, it fires a burst on its own."
+        ))
+
+        self.lbl_bird = QLabel("idle")
+        self.lbl_bird.setStyleSheet(
+            "background:#14202a;color:#9fd0ff;padding:6px;border-radius:4px;"
+            "font-family:monospace;")
+        self.lbl_bird.setWordWrap(True)
+        v.addWidget(self.lbl_bird)
+
+        cap = QFormLayout()
+        cap.addRow(QLabel("<b>Capture</b>"))
+        cap.addRow("Burst per take", self._spin("bf_burst", 1, 40))
+        cap.addRow("Cooldown after a take",
+                   self._spin("bf_cooldown_s", 0.0, 60.0, 0.5, decimals=1,
+                              suffix=" s"))
+        cap.addRow("Stop after takes (0 = keep watching)",
+                   self._spin("bf_takes", 0, 1000))
+        v.addLayout(cap)
+
+        auto = QFormLayout()
+        auto.addRow(QLabel("<b>Auto-take gates</b>"))
+        auto.addRow("Min boundary sharpness",
+                    self._spin("bf_min_sharpness", 0.0, 100.0, 1.0, decimals=1))
+        auto.addRow("Subject size min",
+                    self._spin("bf_min_area_frac", 0.0, 0.2, 0.0002, decimals=4,
+                               suffix=" of frame"))
+        auto.addRow("Subject size max",
+                    self._spin("bf_max_area_frac", 0.001, 0.5, 0.005, decimals=3,
+                               suffix=" of frame"))
+        auto.addRow("Subject darker than",
+                    self._spin("bf_subject_luma_max", 10, 200))
+        auto.addRow("Sky brighter than", self._spin("bf_sky_luma_min", 40, 250))
+        auto.addRow("Min sky in frame",
+                    self._spin("bf_sky_min_frac", 0.0, 1.0, 0.05, decimals=2))
+        auto.addRow("Sky around subject",
+                    self._spin("bf_ring_sky_frac", 0.0, 1.0, 0.05, decimals=2))
+        auto.addRow("Edge margin",
+                    self._spin("bf_margin_frac", 0.0, 0.4, 0.01, decimals=2))
+        v.addLayout(auto)
+        v.addWidget(self._check("bf_require_motion",
+                                "Require motion between frames"))
+
+        self.btn_bird = QPushButton("Start bird flight watch")
+        self.btn_bird.setCheckable(True)
+        self.btn_bird.setMinimumHeight(44)
+        self.btn_bird.clicked.connect(self._toggle_birdflight)
+        v.addWidget(self.btn_bird)
+
+        v.addWidget(QLabel(
+            "Frames land in a bird-<timestamp> session with the full quality\n"
+            "pipeline; the sighting that fired the burst is logged. Changed\n"
+            "gates apply from the next watch (restart the mode)."
+        ))
+        v.addStretch(1)
+        return page
+
     def _tab_cascade(self) -> QWidget:
         """Group capture with background migration down the storage tiers."""
         page = QWidget()
@@ -2071,6 +2147,26 @@ class MainWindow(QMainWindow):
             self.engine.send("stop")
         else:
             self.engine.send("timelapse", count=int(self.cfg["timelapse_count"]))
+
+    def _toggle_birdflight(self) -> None:
+        if self.engine.state == "birdflight":
+            self.engine.send("stop")
+        else:
+            self.lbl_bird.setText("watching the sky...")
+            self.engine.send("birdflight", takes=int(self.cfg["bf_takes"]))
+
+    def _on_bird(self, payload: Dict[str, Any]) -> None:
+        s = payload.get("sighting") or {}
+        if payload.get("phase") == "take":
+            msg = ("TAKE #%d  sharp %.1f, %.2f%% of frame"
+                   % (payload.get("take_n", 0), s.get("sharpness", 0.0),
+                      100.0 * s.get("area_frac", 0.0)))
+            self.lbl_bird.setText(msg)
+            self._log("bird flight: %s" % msg)
+            self.status.showMessage("bird! burst fired", 3000)
+        else:
+            why = ", ".join(s.get("reasons") or []) or "judging..."
+            self.lbl_bird.setText("subject seen -- holding: %s" % why)
 
     def _toggle_record(self) -> None:
         if self.engine.state == "video":

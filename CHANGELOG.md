@@ -8,6 +8,14 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **Capture Bird Flight landed** (off-Pi) — a new mode that watches the sky
+  and fires a burst on its own when a dark subject is surrounded by sky,
+  sharp along its boundary, inside the frame margins, and moving. The
+  detector (`birdflight.py`, pure numpy) reports *why* it holds fire; the
+  GUI's Bird Flight section exposes capture settings (burst, cooldown, take
+  limit) and every auto-take gate; `birdshot-cli birdflight` runs it
+  headless; frames land in `bird-<timestamp>` sessions. Gates are covered
+  by selftest. Not yet wired into the Pi `CameraEngine`.
 - **Camera selection landed** — a camera dropdown (+ rescan) at the top of
   the Shoot tab: Pi cameras, webcams by name (new **opencv backend**:
   AVFoundation on macOS, V4L2 on Linux — the device owns exposure, our

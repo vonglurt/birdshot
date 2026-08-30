@@ -32,6 +32,7 @@ from birdshot.exposure import ExposureController
 from birdshot.storage import Storage
 
 IDLE, PREVIEW, BURST, TIMELAPSE = "idle", "preview", "burst", "timelapse"
+BIRDFLIGHT = "birdflight"
 
 W, H = 640, 480
 GROUND_ROWS = 64          # dark strip at the bottom, so "empty sky" isn't all there is
@@ -82,6 +83,13 @@ class SyntheticEngine(threading.Thread):
         self._encoder_missing_said = False
         self._profile: Optional[Dict[str, float]] = (
             {} if os.environ.get("BIRDSHOT_PROFILE") else None)
+
+        # Capture Bird Flight bookkeeping.
+        self._detector = None
+        self._bf_burst_left = 0
+        self._bf_next_ok = 0.0
+        self._bf_takes = 0
+        self._bf_last_report = 0.0
 
         self._t0 = time.monotonic()
         self._cfg_cache: Dict[str, Any] = {}
@@ -215,7 +223,7 @@ class SyntheticEngine(threading.Thread):
         try:
             while self._running:
                 self._drain_commands()
-                if self._state in (PREVIEW, BURST, TIMELAPSE):
+                if self._state in (PREVIEW, BURST, TIMELAPSE, BIRDFLIGHT):
                     self._tick()
                 else:
                     time.sleep(0.05)
@@ -253,6 +261,18 @@ class SyntheticEngine(threading.Thread):
             self.controller.reset()
             self._seed_exposure()
             self._state = TIMELAPSE
+        elif cmd == "birdflight":
+            from birdshot.birdflight import BirdFlightDetector
+            self.storage.start_session("bird")
+            self._detector = BirdFlightDetector(self._cfg_dict())
+            self._bf_burst_left = 0
+            self._bf_next_ok = 0.0
+            self._bf_takes = 0
+            self._target_frames = int(kw.get("takes", self.cfg["bf_takes"]) or 0)
+            self._taken = 0
+            self.controller.reset()
+            self._seed_exposure()
+            self._state = BIRDFLIGHT
         elif cmd == "stop":
             self._stop_activity()
         elif cmd == "set_exposure":
@@ -280,7 +300,7 @@ class SyntheticEngine(threading.Thread):
             self._exposure_us, self._gain = seeded
 
     def _stop_activity(self) -> None:
-        if self._state in (BURST, TIMELAPSE):
+        if self._state in (BURST, TIMELAPSE, BIRDFLIGHT):
             summary = self.storage.close_session()
             self.controller.persist()
             self.cfg.set_state(frame_seq=self._seq,
@@ -346,9 +366,12 @@ class SyntheticEngine(threading.Thread):
         elif self._state == TIMELAPSE and t0 >= self._next_shot:
             self._next_shot = t0 + float(self.cfg["timelapse_interval_s"])
             wrote = self._write_frame(y8, stats, decision)
+        elif self._state == BIRDFLIGHT:
+            wrote = self._tick_birdflight(y8, stats, decision, t0)
         if wrote:
             self._fps_window = (self._fps_window + [time.monotonic() - t0])[-40:]
-            if self._target_frames and self._taken >= self._target_frames:
+            if (self._state in (BURST, TIMELAPSE) and self._target_frames
+                    and self._taken >= self._target_frames):
                 self._stop_activity()
                 self._emit("state", {"state": self._state})
 
@@ -357,6 +380,35 @@ class SyntheticEngine(threading.Thread):
             self._profile["tick"] = (time.monotonic() - t0) * 1000.0
         # ~20 fps generation: cheap, and twice the preview publish rate.
         time.sleep(max(0.0, 0.05 - (time.monotonic() - t0)))
+
+    def _tick_birdflight(self, y8, stats, decision, now: float) -> bool:
+        """One Bird Flight step: judge the frame, manage bursts and cooldown."""
+        sighting = self._detector.update(y8)
+
+        if (sighting.take and self._bf_burst_left == 0
+                and now >= self._bf_next_ok):
+            self._bf_burst_left = max(1, int(self.cfg["bf_burst"]))
+            self._bf_takes += 1
+            self._emit("bird", {"phase": "take", "take_n": self._bf_takes,
+                                "sighting": sighting.to_dict()})
+        elif sighting.present and now - self._bf_last_report >= 1.0:
+            # A sighting that did not fire, reported at most once a second so
+            # the GUI can say *why* the mode is holding its fire.
+            self._bf_last_report = now
+            self._emit("bird", {"phase": "sighting",
+                                "sighting": sighting.to_dict()})
+
+        wrote = False
+        if self._bf_burst_left > 0:
+            wrote = self._write_frame(y8, stats, decision)
+            self._bf_burst_left -= 1
+            if self._bf_burst_left == 0 or not wrote:
+                self._bf_next_ok = now + float(self.cfg["bf_cooldown_s"])
+                if (self._target_frames
+                        and self._bf_takes >= self._target_frames):
+                    self._stop_activity()
+                    self._emit("state", {"state": self._state})
+        return wrote
 
     def _write_frame(self, y8: np.ndarray, stats, decision) -> bool:
         jpeg = self._encode_jpeg(self._capture_rgb(y8))

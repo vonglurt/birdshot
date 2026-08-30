@@ -132,10 +132,17 @@ The system must stay responsive while capturing.
   that numpy/OpenCV cannot absorb, the escape hatch is a small native module
   (Rust via PyO3, or C) for that kernel only — not a rewrite.
 
-### 6. New mode: **Capture Bird Flight**
+### 6. New mode: **Capture Bird Flight** — **built** (off-Pi; awaiting field trial)
 
-A monitoring mode that watches the sky and takes the photo itself when the
-photo is worth taking:
+Implemented as designed below: `birdflight.py` holds the detector (pure
+numpy, gates configurable via `bf_*` keys), the backends engine runs the
+mode (`birdflight` command/state, burst + cooldown, `bird` events), the GUI
+has the mode in the tuner with a capture + auto-take settings section, and
+`birdshot-cli birdflight` drives it headless. Selftest covers the gates.
+Verified against the synthetic bird: fires on sharp/centred/against-sky,
+holds fire near edges, off-sky, soft, or static. Remaining: wire the mode
+into the Pi `CameraEngine` (the detector is shared; the state plumbing is
+not yet) and tune thresholds on real birds. The original design:
 
 - **Detect** — motion gate first (cheap frame differencing), then subject
   check: a discrete dark region against a sky-classified background (blue or

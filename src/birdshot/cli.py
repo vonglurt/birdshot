@@ -276,6 +276,32 @@ def cmd_cascade(args, cfg):
     return 0
 
 
+def cmd_birdflight(args, cfg):
+    """Watch the sky; burst automatically when a bird is sharp against it."""
+    def on_event(name, payload):
+        if name == "bird":
+            s = payload.get("sighting") or {}
+            if payload.get("phase") == "take":
+                print("TAKE #%-3d sharp %5.1f  area %.4f  ring-sky %.2f  at %s"
+                      % (payload.get("take_n", 0), s.get("sharpness", 0.0),
+                         s.get("area_frac", 0.0), s.get("ring_sky_frac", 0.0),
+                         s.get("centroid")))
+            else:
+                print("  holding: %s" % ", ".join(s.get("reasons") or ["judging"]))
+        elif name == "frame":
+            _progress(name, payload)
+        elif name == "error":
+            print("  ERROR: %s" % payload.get("msg"), file=sys.stderr)
+
+    engine, storage, _ = _engine(cfg, on_event)
+    print("watching for birds (%s takes max, burst of %d, %.1fs cooldown)..."
+          % (args.takes or "unlimited", cfg["bf_burst"], cfg["bf_cooldown_s"]))
+    engine.send("birdflight", takes=args.takes)
+    _await_state(engine, "birdflight", args.timeout)
+    _finish(engine, storage)
+    return 0
+
+
 def cmd_timelapse(args, cfg):
     cfg["timelapse_interval_s"] = args.interval
     engine, storage, _ = _engine(cfg, _progress)
@@ -693,6 +719,53 @@ def cmd_selftest(args, cfg):
         return "located detail at row %d col %d" % best
     check("focus map", t_focus_map)
 
+    def t_birdflight():
+        """The auto-take gates, exercised on frames built in-line."""
+        from birdshot.birdflight import BirdFlightDetector
+
+        def scene(bird_at=None, blur=0):
+            y = np.full((480, 640), 160, np.uint8)     # bright sky
+            y[420:, :] = 40                            # ground strip (border)
+            if bird_at:
+                cx, cy = bird_at
+                yy, xx = np.mgrid[0:480, 0:640]
+                m = ((xx - cx) / 22.0) ** 2 + ((yy - cy) / 9.0) ** 2 <= 1.0
+                y[m] = 30
+            if blur:
+                f = y.astype(np.float32)
+                for _ in range(blur):
+                    f = (f + np.roll(f, 1, 0) + np.roll(f, -1, 0)
+                         + np.roll(f, 1, 1) + np.roll(f, -1, 1)) / 5.0
+                y = np.clip(f, 0, 255).astype(np.uint8)
+            return y
+
+        still = {"bf_require_motion": False}
+        s = BirdFlightDetector(still).update(scene((320, 150)))
+        assert s.take, "sharp centred bird must fire: %s" % s.reasons
+        assert s.sharpness > 12, s.sharpness
+
+        s2 = BirdFlightDetector(still).update(scene(None))
+        assert not s2.present and "no subject" in s2.reasons, s2.reasons
+
+        # The border-hugging ground strip must never become the subject.
+        edge = BirdFlightDetector(still).update(scene((40, 150)))
+        assert not edge.take, "edge bird fired: %s" % edge.to_dict()
+
+        soft = BirdFlightDetector(still).update(scene((320, 150), blur=14))
+        assert not soft.take and any("sharp" in r for r in soft.reasons), \
+            (soft.sharpness, soft.reasons)
+
+        det = BirdFlightDetector({})                    # motion required
+        det.update(scene((300, 150)))
+        moving = det.update(scene((320, 150)))
+        assert moving.take, moving.reasons
+        parked = BirdFlightDetector({})
+        parked.update(scene((320, 150)))
+        held = parked.update(scene((320, 150)))
+        assert not held.take and "no motion" in held.reasons, held.reasons
+        return "fires sharp+sky+centred; holds soft, edge, empty, static"
+    check("bird flight gates", t_birdflight)
+
     def t_encode_select():
         import shutil
         from birdshot import timelapse as tl2
@@ -979,6 +1052,13 @@ def main():
     cs.add_argument("--ring", action="store_true", help="drop oldest when full")
     cs.add_argument("--timeout", type=float, default=300)
     cs.set_defaults(fn=cmd_cascade)
+
+    bf = sub.add_parser("birdflight",
+                        help="watch the sky; burst when a bird is sharp against it")
+    bf.add_argument("-n", "--takes", type=int, default=0,
+                    help="stop after this many takes (0 = keep watching)")
+    bf.add_argument("--timeout", type=float, default=0)
+    bf.set_defaults(fn=cmd_birdflight)
 
     t = sub.add_parser("timelapse")
     t.add_argument("-i", "--interval", type=float, default=5.0)

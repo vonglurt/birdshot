@@ -157,6 +157,22 @@ DEFAULTS: Dict[str, Any] = {
     "timelapse_count": 0,  # 0 = until stopped
     # ---- burst ---------------------------------------------------------
     "burst_count": 0,  # 0 = free-run until stopped
+    # ---- Capture Bird Flight (see birdflight.py for the gates) ---------
+    # capture: what happens when the detector says "now"
+    "bf_burst": 5,             # frames fired per take
+    "bf_cooldown_s": 3.0,      # quiet time after a burst, per subject pass
+    "bf_takes": 0,             # stop after this many takes; 0 = keep watching
+    # auto-take: the gates a frame must pass
+    "bf_min_sharpness": 12.0,  # boundary sharpness floor, 0..100
+    "bf_min_area_frac": 0.0004,  # subject size limits, fraction of frame
+    "bf_max_area_frac": 0.05,
+    "bf_subject_luma_max": 80,   # how dark a subject reads against sky
+    "bf_sky_luma_min": 110,      # how bright counts as sky (blue or white)
+    "bf_sky_min_frac": 0.5,      # the frame must be at least this much sky
+    "bf_ring_sky_frac": 0.85,    # sky fraction required around the subject
+    "bf_margin_frac": 0.08,      # keep the subject this far inside the edges
+    "bf_require_motion": True,
+    "bf_motion_min": 0.0005,     # fraction of pixels changed between frames
     # ---- rapid (flat YYYYmmddHHMMSS stills, fastest possible) ----------
     # Measured end-to-end (fps), continuous vs ram:
     #   4056x3040   4.53 / 4.17     2028x1520  21.02 / 16.34    1332x990  34.81 / 36.75
