@@ -237,7 +237,7 @@ fired in exactly the scene this camera is pointed at, which also stopped the lux
 constant ever being learned.
 
 Metering is zone-weighted, not average: the top 40% of frame is treated as sky
-and weighted at 0.15, the rest as subject at 1.0. All tunable in the Exposure tab.
+and weighted at 0.15, the rest as subject at 1.0. All tunable in Scene > Exposure and tone.
 
 ### Shutter/gain ladder
 
@@ -254,7 +254,7 @@ motion limit, which is the trade you want for birds.
 
 ### Calibration wizard
 
-Runs on first start, and any time from the Exposure tab. It asks you to point at
+Runs on first start, and any time from Scene > Exposure and tone. It asks you to point at
 **open sky**, then the **treeline**, then optionally a subject or grey card, and
 lets the loop settle on each.
 
@@ -288,19 +288,42 @@ that passed, which quietly removes the flicker those frames would cause.
 
 ## The interface
 
-Four tabs, each a stack of collapsible sections. A collapsed section still shows
-its current setting on one line, so closing things does not hide state:
+One window, four **faces**, switchable from the title bar (or Ctrl+1..4).
+The deploy decides where you land (`ui_face: auto` — the Pi boots Field, a
+git checkout boots Bench, an Alpine/copal desktop boots Camera, a Mac
+install boots Library; `--face` overrides). Every face drives the same
+engine and the same `settings.json`.
+
+| Face | For | Shows |
+|---|---|---|
+| **Camera** | the copal desktop, casual use | preview, shutter, mode strip, camera picker — nothing that needs this README |
+| **Field** | the instrument outdoors | huge START/STOP, the Bird Flight gate ladder live, storage headroom, outdoor mode |
+| **Bench** | tuning | the full control rail: three tabs of collapsible sections |
+| **Library** | the darkroom | sessions, verdict badges, bird takes with their triggers, encode/EXIF/offload |
+
+Bench's rail keeps the camera picker, a **find-a-setting** box, the mode
+dial and START above three tabs — a setting lives with the thing it tunes:
 
 | Tab | Holds |
 |---|---|
-| **Shoot** | mode dropdown, one START button, and the settings for each mode |
-| **Image** | exposure and tone, focus aids, quality gates |
-| **Storage** | cascade tiers, RAM buffer, flush, paths, unattended start |
-| **Process** | encode photos into a movie, EXIF |
+| **Shoot** | one section per mode: Stills, Rapid, Timelapse, Video, Bird Flight |
+| **Scene** | exposure and tone, focus aids, quality gates |
+| **Machine** | cascade tiers, paths/offload/unattended start, install health (doctor), EXIF identity |
 
-One **mode dropdown** (Stills / Rapid / Timelapse / Video) drives a single START
-button, and selecting a mode opens its section. The four separate start buttons
-are gone.
+A collapsed section still shows its current setting on one line, so closing
+things does not hide state. Values that differ from the defaults get an
+amber label; the rail's footer counts them and `reset...` lists and
+restores them. A `doctor:` chip in the status bar carries the same
+checklist `birdshot-cli doctor` prints — click it for the full report.
+
+Because the same window now drives an IMX477, a webcam or the synthetic
+scene, every control is **gated by what the selected camera can actually
+do**: modes and sections a backend cannot run grey out with the reason,
+never hidden and never pretending (the capability names live in
+`birdshot/backends`).
+
+One **mode dial** (Stills / Rapid / Timelapse / Video / Bird Flight) drives
+a single START button, and selecting a mode opens its section.
 
 **Fullscreen** -- the button, `F11`, or a **double-click on the image**. Every
 overlay stays live; `Esc`, `F11` or another double-click returns.
@@ -330,7 +353,7 @@ what each tier has left, and gives the ways to free space. It cannot be dismisse
 until there is actually room -- a status-bar line is the wrong place for "frames
 are being lost right now".
 
-## Rapid tab -- fastest single photos
+## Rapid -- fastest single photos
 
 Flat files named `YYYYmmddHHMMSS.jpg`, one folder per run, no shutter
 subdirectories and no quality gates. Because the camera shoots several frames a
@@ -348,7 +371,7 @@ Two strategies:
   serially on the capture loop. Kept only for when zero disk I/O during the
   burst matters more than rate. Capacity is shown live from free RAM.
 
-## Encode tab -- photos to video
+## Encode -- photos to video (in the Library face)
 
 Takes any folder of images: a rapid run, a timelapse, a `sess-*` folder, or one
 of the old `runCam.sh` `s191`/`sauto` directories -- those are offered in the
@@ -362,8 +385,8 @@ cancelled.
 
 ## Focus
 
-The lens is manual with no feedback, so the **Focus tab** collects the aids that
-make that workable. Opening the tab switches the focus map and readout on
+The lens is manual with no feedback, so **Scene > Focus aids** collects the aids that
+make that workable. Opening the section switches the focus map and readout on
 automatically, and turns them off when you leave (they cost a Laplacian pass per
 frame).
 
@@ -379,7 +402,8 @@ frame).
 
 What counts as "sharp" depends on the lens, the aperture and the subject, so the
 blur gate is referenced to a frame *you* call focused: focus carefully, then press
-**Use current view as the sharp reference** in the Focus tab. The gate is set to
+**Use current view as the sharp reference** in Scene > Focus aids (the
+Library can also anchor it from any indexed frame). The gate is set to
 half that reading. Until you do, it sits at a floor low enough to reject nothing,
 which is the safe default -- a mis-set blur gate that silently discards frames is
 much worse than one that passes everything.
@@ -436,7 +460,7 @@ Graphics in the menu:
 |---|---|
 | **birdshot** | normally, maximized |
 | **birdshot (AUTO)** | `--auto` -- honours an `autowrite.yes` stick and starts shooting |
-| **birdshot (Focus)** | straight to the Focus tab, for setting the lens |
+| **birdshot (Focus)** | straight to the focus aids (`--tab focus`), for setting the lens |
 
 They are marked executable and trusted, so PCManFM will not ask "this file is
 not executable" on every launch.
@@ -488,7 +512,7 @@ be lost.
 > smaller resolution, raise the interval, or accept that the copy completes at
 > shutdown rather than during the run.
 
-## Cascade tab -- group capture that clears itself
+## Cascade -- group capture that clears itself
 
 Frames are written into **groups** (numbered directories holding a bounded number
 of frames). When a group is full it is *sealed*, and background workers copy it
@@ -523,7 +547,7 @@ upper tiers left empty.
   a peak capture demand of ~12 MB/s.
 - It does **not** raise the sustained rate above the slowest tier. The upper tiers
   absorb bursts; over a long run the cascade shifts data only as fast as the
-  bottom tier accepts it. The tab predicts the run length from your settings and
+  bottom tier accepts it. The section (Machine > Cascade) predicts the run length from your settings and
   says what the limit is.
 - It **does** let a run outlive any single tier, and it keeps every tier from
   filling up without you watching it.
@@ -543,7 +567,7 @@ birdshot-cli cascade --tiers /dev/shm/birdshot,/home/pi/birdshot-data/cascade,us
 - The bottom tier never deletes anything unless **ring mode** is switched on. Ring
   mode drops the oldest groups to keep shooting forever; it is the only place
   birdshot deletes data that exists nowhere else, so it is off by default and
-  labelled as such in the tab.
+  labelled as such in the section.
 - Sealing is atomic and writer-counted: encoder threads writing into a group hold
   a reference, and sealing waits for them. Without that a frame could land in a
   group whose manifest was already written, leaving it unlisted and unverified.
@@ -574,7 +598,8 @@ minutes. **piexif** is present and injects the APP1 segment straight into the
 JPEG byte stream -- no re-encode, so no quality loss. Measured 30 frames in
 0.7 s, writing to the NTFS USB stick.
 
-Tick *"Write EXIF into the source frames first"* in the Encode tab, or:
+Tick *"Write EXIF into the source frames first"* in the Library face's
+encode panel, or:
 
 ```bash
 birdshot-cli exif rapid-2026073113580718            # tag in place
@@ -655,7 +680,7 @@ need to.
 Capture writes to the eMMC. Finished sessions are handed to a background rsync
 that trickles them to the USB stick at low priority, so it never steals CPU from
 the encode threads. Nothing is deleted from the eMMC unless you enable
-"Delete after a verified copy" in the Storage tab. Capture stops automatically
+"Delete after a verified copy" in Machine > Paths. Capture stops automatically
 below the free-space floor (2 GB by default).
 
 Your existing files on the stick are untouched -- offload writes under
@@ -669,7 +694,7 @@ the eMMC. Pulling to the Mac over gigabit is the faster path for bulk work.
 
 ## Timelapse
 
-Capture at an interval (Timelapse tab, or `birdshot-cli timelapse`), then assemble at
+Capture at an interval (the Timelapse mode, or `birdshot-cli timelapse`), then assemble at
 60 fps. Assembly on the Pi is libx264 on four A72 cores and is slow for 12 MP
 frames; `mac/assemble.sh` does the same job on the Mac with identical frame
 selection, an order of magnitude faster.
@@ -690,7 +715,8 @@ selection, an order of magnitude faster.
 | `src/birdshot/autostart.py` | `autowrite.yes` detection and parsing |
 | `src/birdshot/cascade.py` | tiered storage: groups, migration, verification |
 | `src/birdshot/exif.py` | EXIF tagging as a preprocessing step |
-| `src/birdshot/gui/widgets.py` | accordion, fullscreen preview, blocking overlay |
+| `src/birdshot/gui/widgets.py` | accordion, mode dial, fullscreen preview, blocking overlay |
+| `src/birdshot/gui/faces.py` | the four faces: Camera, Field (gate ladder), Library, face bar |
 | `src/birdshot/tone.py` | ISP tone curve (the HQ-cam gamma) |
 | `src/birdshot/gui/` | PyQt5 front end, calibration wizard, focus monitor |
 | `bin/birdshot-gui` | GUI launcher (`--auto`, `--tab`, maximized by default) |

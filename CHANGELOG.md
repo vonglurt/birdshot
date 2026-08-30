@@ -8,6 +8,46 @@ Notable changes to birdshot. Format loosely follows
 
 ## [Unreleased]
 
+- **One window, four faces** — the GUI grew a face switcher (title bar, or
+  Ctrl+1..4) over the same engine and settings.json, matching the audiences
+  the packaging plan ships to: **Camera** (a plain camera app — preview,
+  shutter, mode strip, camera picker; what the copal desktop boots),
+  **Field** (the instrument outdoors: huge START/STOP, storage headroom,
+  outdoor controls, and the Bird Flight **gate ladder** — every auto-take
+  gate's live value against its threshold, so holding fire is readable),
+  **Bench** (the classic dense window), **Library** (the darkroom:
+  sessions, verdict badges, bird takes with the trigger that fired them,
+  frame detail with use-as-sharpness-reference/open/delete, and the encode
+  panel's new home). `ui_face: auto` resolves per install — Pi→field,
+  checkout→bench, Alpine/copal→camera, Mac install→library; `--face`
+  overrides. Fusion now runs the dark palette the custom controls always
+  used.
+- **Bench re-scoped: Shoot / Scene / Machine** — a setting lives with what
+  it tunes: per-mode sections in Shoot, the image science in Scene,
+  this-install concerns in Machine, which gained **Install health** (the
+  doctor checklist in-GUI, plus a status-bar chip) and **Identity** (the
+  `exif_*` keys' first GUI). The old tab names still work as `--tab`
+  aliases; Process's encode panel lives in the Library face.
+- **Capability gating** — every engine declares what it can do
+  (`CAPABILITIES` in `birdshot/backends`); the GUI greys out what the
+  selected camera cannot run, with the reason, instead of offering
+  controls that could only return error events. Modes grey on the dial,
+  whole sections gate (Rapid/Video/Cascade off-Pi, Bird Flight on the Pi
+  until its engine wiring lands), exposure groups gate on webcams that own
+  their own exposure, the tone curve on anything without the Pi ISP.
+- **Settings search and provenance** — a find-a-setting box jumps to any
+  of the ~90 keys (tab selected, section opened, row flashed); labels of
+  values changed from the defaults turn amber with the default in the
+  tooltip, the rail footer counts the drift, and `reset...` restores it.
+- **Bird Flight: triggers recorded, subject box live** — every frame a
+  take fires now carries its trigger sighting in `index.jsonl` (what the
+  EXIF chain and the Library's "trigger that fired this take" read), and
+  the detector's subject box is drawn on the preview at display rate,
+  green through a take.
+- **Selftest honest off the instrument** — a new SKIP outcome for checks
+  whose subject this machine cannot run (piexif absent; the ISP tuning
+  file off-Pi, where `build_tuning()` correctly declines and the test now
+  asserts exactly that). Off-Pi selftest is green: 18 PASS, 1 SKIP.
 - **Capture Bird Flight landed** (off-Pi) — a new mode that watches the sky
   and fires a burst on its own when a dark subject is surrounded by sky,
   sharp along its boundary, inside the frame margins, and moving. The

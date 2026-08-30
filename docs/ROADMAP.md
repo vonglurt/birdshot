@@ -159,14 +159,43 @@ not yet) and tune thresholds on real birds. The original design:
   side (motion sensitivity, sky hue range, minimum sharpness, minimum subject
   size). Saved per-profile like everything else.
 
+### 7. One window, four faces — **done** (off-Pi; wants on-Pi eyes)
+
+Not in the original backlog, but it fell straight out of the packaging
+plan's audiences: the channels ship birdshot to people who need different
+first screens, and a copal desktop whose default camera app opens on PID
+deadbands fails that role. Shipped:
+
+- **Faces** — Camera (plain camera app), Field (instrument: gate ladder,
+  storage headroom, huge targets), Bench (the dense window), Library
+  (darkroom: sessions, verdicts, takes with triggers, encode). One engine,
+  one settings.json, one live preview reparented between them.
+  `ui_face: auto` resolves per install (Pi→field, checkout→bench,
+  Alpine/copal→camera, Mac install→library); each channel can pin it via
+  `doctor --write-config`.
+- **Bench re-scope** — Shoot / Scene / Machine; doctor in the GUI plus a
+  status-bar chip; the `exif_*` identity keys got their first GUI; settings
+  search; changed-from-default provenance with reset.
+- **Capability gating** — engines declare `CAPABILITIES`; the GUI greys
+  out what the selected camera cannot do, with the reason. This also makes
+  the Pi honest about Bird Flight until item 6's engine wiring lands.
+- **Selftest** grew a SKIP outcome, so the Mac loop is green without
+  pretending (piexif and the ISP tuning file are instrument/extra things).
+
+Still wanted: a pass on the Pi's own display (the Field face is sized from
+taste, not from the deployed panel), and screenshots for the README slots.
+
 ### Sequencing
 
-1. Backend split + camera enumeration (unblocks Mac work, needs no Pi).
-2. Doctor + install.sh + copal hook (makes every later deploy checkable).
+1. Backend split + camera enumeration — **done** (needs no Pi).
+2. Doctor + install.sh — **done**; the copal hook still wants the copal VM.
 3. Performance pass (on-Pi; first session after power-up, right after the
    1.0.0 selftest).
-4. Capture Bird Flight, built on the backend split so the detector can be
-   developed on the Mac against replayed footage and deployed to the Pi.
+4. Capture Bird Flight — **built**; wire into the Pi `CameraEngine` and
+   field-tune thresholds when the Pi is on. A file/replay backend for
+   recorded footage remains the honest way to tune gates on real birds.
+5. The faces (item 7) — **done** off-Pi; verify on the Pi's display.
 
-Ship `v1.1.0-rc1` when 1–3 hold on both platforms; Bird Flight rides in 1.1 if
-it is ready, or becomes the headline of `1.2.0` (codename to be argued about).
+Ship `v1.1.0-rc1` when the on-Pi items hold on both platforms; Bird Flight
+rides in 1.1 if its engine wiring is ready, or becomes the headline of
+`1.2.0` (codename to be argued about).

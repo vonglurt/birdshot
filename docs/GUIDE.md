@@ -159,7 +159,7 @@ restart resumes rather than starting cold.
 
 ## IV. Operating Modes
 
-The mode selector on the Shoot tab shows all four modes simultaneously. Use the
+The mode dial in the Bench face's rail shows all five modes simultaneously. Use the
 arrows, the `[` and `]` keys, or click. Selecting a mode opens its settings.
 
 ### A. Stills (COLLECT)
@@ -459,7 +459,7 @@ curve for the shape of the response.
 ## VII. Focusing
 
 The lens is manual and reports nothing. Three aids are provided, all on the
-Focus section of the Image tab.
+Focus aids section of the Scene tab.
 
 ### A. The Focus Map
 
@@ -678,7 +678,7 @@ tone_curve            rolloff
 reject_action         flag
 ```
 
-Assemble with the Encode tab at 60 fps, restricted to frames that passed the
+Assemble from the Library face's encode panel at 60 fps, restricted to frames that passed the
 quality gates — this removes the occasional dark or blown frame that would
 otherwise flicker through the finished sequence.
 
@@ -714,7 +714,7 @@ camera. Only one process may own the camera at a time.
 
 ### E. Frames Are Not Reaching the USB Stick
 
-Use **Flush everything down now** on the Storage tab. Note that at 21 fps the
+Use **Flush everything down now** in Machine > Cascade. Note that at 21 fps the
 capture rate (~10 MB/s) is close to the stick's ceiling (~12 MB/s), so continuous
 copying only just keeps pace and cannot catch up once behind. The status bar
 reports how many frames the stick is behind.
