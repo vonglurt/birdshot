@@ -12,7 +12,7 @@ BIN_SRC := bin/birdshot-cli bin/birdshot-gui bin/birdshot-wallpaper
 SH_SRC := sync.sh install.sh $(wildcard mac/*.sh) .githooks/pre-commit
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint sanitise audit-history deps vendor-check hooks dist doctor selftest info clean
+.PHONY: help check lint sanitise audit-history deps vendor-check hooks dist doctor run rundebug selftest info clean
 
 help:
 	@echo 'birdshot -- make targets'
@@ -26,6 +26,8 @@ help:
 	@echo '  make hooks          install the sanitisation pre-commit hook'
 	@echo '  make dist           build the sdist + wheel every channel consumes'
 	@echo '  make doctor         check this machine: deps, cameras, storage'
+	@echo '  make run            launch the GUI from this checkout'
+	@echo '  make rundebug       GUI with profiling, Qt logging and Python dev mode'
 	@echo
 	@echo '  make selftest       run the on-camera selftest on the Pi (needs hardware)'
 	@echo '  make info           camera, modes, storage and calibration, from the Pi'
@@ -138,6 +140,26 @@ dist: check
 
 doctor:
 	@./bin/birdshot-cli doctor
+
+# Launch the app from the checkout. On a machine without the camera stack
+# (a Mac today -- the backend split in docs/ROADMAP.md is what changes that)
+# this fails fast and points at doctor instead of a bare traceback.
+run:
+	@python3 bin/birdshot-gui || \
+	  { st=$$?; echo; \
+	    echo "launch failed -- 'make doctor' lists what this machine is missing"; \
+	    exit $$st; }
+
+# Same launch, loud: BIRDSHOT_PROFILE turns on the engine's per-frame timing
+# report, -X dev enables Python's debug checks and full warnings, and the Qt
+# platform layer logs what it is doing. Windowed, so the terminal stays
+# visible next to it.
+rundebug:
+	@BIRDSHOT_PROFILE=1 QT_LOGGING_RULES='qt.qpa.*=true' \
+	  python3 -X dev -W default bin/birdshot-gui --no-maximize || \
+	  { st=$$?; echo; \
+	    echo "launch failed -- 'make doctor' lists what this machine is missing"; \
+	    exit $$st; }
 
 # ------------------------------------------------------------ the hardware --
 selftest:
