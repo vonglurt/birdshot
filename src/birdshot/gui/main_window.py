@@ -93,6 +93,9 @@ class MainWindow(QMainWindow):
         self._tick = QTimer(self)
         self._tick.timeout.connect(self._refresh_status)
         self._tick.start(1000)
+        # First health check once startup has settled; the chip in the status
+        # bar carries the answer and clicking it opens the full checklist.
+        QTimer.singleShot(3000, self._run_doctor)
 
         if self.cfg.get("outdoor_mode"):
             self.chk_outdoor.setChecked(True)
@@ -104,10 +107,25 @@ class MainWindow(QMainWindow):
         elif not (self.cfg["calibration"] or {}).get("done"):
             QTimer.singleShot(1500, self._offer_calibration)
 
+    # Old tab names people (and desktop entries) may still ask for, mapped to
+    # where that content lives now.
+    TAB_ALIASES = {"image": "scene", "storage": "machine", "cascade": "machine",
+                   "focus": "scene", "exposure": "scene", "quality": "scene",
+                   "rapid": "shoot", "capture": "shoot"}
+
     def select_tab(self, name: str) -> bool:
-        """Switch to a tab by name (case-insensitive). True if it existed."""
+        """Switch to a tab (or face) by name, honouring pre-face aliases."""
+        n = name.strip().lower()
+        if n in ("process", "encode"):
+            self.set_face("library")
+            return True
+        if n in faces.FACES:
+            self.set_face(n)
+            return True
+        n = self.TAB_ALIASES.get(n, n)
         for i in range(self._tabs.count()):
-            if self._tabs.tabText(i).lower() == name.strip().lower():
+            if self._tabs.tabText(i).lower() == n:
+                self.set_face("bench")
                 self._tabs.setCurrentIndex(i)
                 return True
         return False
@@ -192,7 +210,7 @@ class MainWindow(QMainWindow):
         self._log(autostart.describe(self.auto).replace("\n", " | "))
 
         if self.auto.get("start"):
-            self._tabs.setCurrentIndex(self._tabs.indexOf(self._rapid_page))
+            self.tuner.set_index(1)   # Rapid: opens its section, labels STOP
             self._toggle_rapid()
             self._log("unattended capture started")
 
@@ -224,6 +242,8 @@ class MainWindow(QMainWindow):
             self._log("encode: %s" % payload.get("stage"))
         elif name == "bird":
             self._on_bird(payload)
+        elif name == "doctor":
+            self._on_doctor(payload)
         elif name == "rapid":
             self._on_rapid(payload)
         elif name == "cascade":
@@ -472,23 +492,28 @@ class MainWindow(QMainWindow):
         lrow.addWidget(kn)
         lv.addLayout(lrow)
         lv.addWidget(self._build_readout())
+        lv.addLayout(self._build_view_row())
         splitter.addWidget(left)
 
         # ---- right: controls -----------------------------------------
-        # Four tabs instead of ten. Each is a stack of collapsible sections, so
-        # everything is still one click away but only what you are using is open.
+        # Three tabs, scoped by what a setting tunes: Shoot (each mode's own
+        # keys), Scene (the image science), Machine (this install). Each is a
+        # stack of collapsible sections; the mode header and START stay above
+        # the tabs, always visible. What was the Process tab lives with the
+        # Library face now.
         self._acc = {}
+        self._sections = {}
 
-        def section(title, widget, expanded=False):
+        def section(title, widget, expanded=False, tab=0):
             a = Accordion(title, expanded)
             a.addWidget(widget)
             self._acc[title] = a
+            self._sections[title] = (tab, a)
             return a
 
         self._rapid_page = self._tab_rapid()
 
         shoot = self._stack([
-            self._mode_header(),
             section("Stills - full pipeline, quality gates", self._tab_capture()),
             section("Rapid - fastest, flat filenames", self._rapid_page),
             section("Timelapse", self._tab_timelapse()),
@@ -496,35 +521,45 @@ class MainWindow(QMainWindow):
             section("Bird Flight - auto-take, sharp against sky",
                     self._tab_birdflight()),
         ])
-        image = self._stack([
-            section("Exposure and tone", self._tab_exposure(), expanded=True),
-            section("Focus aids", self._tab_focus()),
-            section("Quality gates", self._tab_quality()),
+        scene = self._stack([
+            section("Exposure and tone", self._tab_exposure(), expanded=True,
+                    tab=1),
+            section("Focus aids", self._tab_focus(), tab=1),
+            section("Quality gates", self._tab_quality(), tab=1),
         ])
-        storage = self._stack([
+        machine = self._stack([
             section("Cascade - tiers, RAM buffer, flush", self._tab_cascade(),
-                    expanded=True),
-            section("Paths, offload and unattended start", self._tab_storage()),
-        ])
-        process = self._stack([
-            section("Encode photos into a movie", self._tab_encode(), expanded=True),
+                    tab=2),
+            section("Paths, offload and unattended start", self._tab_storage(),
+                    tab=2),
+            section("Install health - doctor", self._tab_health(), tab=2),
+            section("Identity - EXIF", self._tab_identity(), tab=2),
         ])
 
         tabs = QTabWidget()
         tabs.addTab(shoot, "Shoot")
-        tabs.addTab(image, "Image")
-        tabs.addTab(storage, "Storage")
-        tabs.addTab(process, "Process")
+        tabs.addTab(scene, "Scene")
+        tabs.addTab(machine, "Machine")
         self._hide_redundant_buttons()
-        # The mode header is built before the sections exist, so its first call
-        # had nothing to expand. Re-run it now that they do.
-        self._mode_changed(self.tuner.index())
         tabs.currentChanged.connect(self._tab_changed)
         self._tabs = tabs
+        # The Focus aids drive a per-frame Laplacian pass, so the focus map
+        # follows the section the way it used to follow the old Focus tab.
+        self._acc["Focus aids"].toggled_open.connect(self._focus_section_toggled)
+
+        rail = QWidget()
+        rail_v = QVBoxLayout(rail)
+        rail_v.setContentsMargins(0, 0, 0, 0)
+        rail_v.setSpacing(4)
+        rail_v.addWidget(self._mode_header())
+        rail_v.addWidget(tabs, 1)
+        # The header's first _mode_changed ran before the sections existed and
+        # had nothing to expand; re-run it now that they do.
+        self._mode_changed(self.tuner.index())
 
         right = QScrollArea()
         right.setWidgetResizable(True)
-        right.setWidget(tabs)
+        right.setWidget(rail)
         # Cap the sidebar rather than letting it take a share of the width. The
         # canvas is 4:3 (the sensor is 4056x3040), so once it is height-limited
         # every extra pixel of width is wasted -- but until then width is what
@@ -545,6 +580,10 @@ class MainWindow(QMainWindow):
         self._camera_combos.append(self.face_camera.cmb_camera)
         self.face_camera.cmb_camera.activated.connect(self._switch_camera)
         self._populate_cameras()
+        # The encode UI (the old Process tab) lives with the Library face,
+        # next to the sessions it consumes. The window still owns the job.
+        self.face_library.adopt_encode_page(self._tab_encode())
+        self._acc["Encode photos into a movie"] = self.face_library.enc_acc
 
         from birdshot import __version__
         self.facebar = faces.FaceBar("v%s" % __version__)
@@ -589,10 +628,18 @@ class MainWindow(QMainWindow):
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
+        self.btn_doctor = QPushButton("doctor: ...")
+        self.btn_doctor.setFlat(True)
+        self.btn_doctor.setCursor(Qt.PointingHandCursor)
+        self.btn_doctor.setStyleSheet(
+            "QPushButton{border:none;background:transparent;color:#888;"
+            "font-family:monospace;font-size:11px;}")
+        self.btn_doctor.clicked.connect(self._open_health)
         self.lbl_state = QLabel("IDLE")
         self.lbl_free = QLabel("-")
         self.lbl_offload = QLabel("-")
-        for w in (self.lbl_state, self.lbl_free, self.lbl_offload):
+        for w in (self.btn_doctor, self.lbl_state, self.lbl_free,
+                  self.lbl_offload):
             self.status.addPermanentWidget(w)
 
     def _stack(self, widgets) -> QWidget:
@@ -657,24 +704,31 @@ class MainWindow(QMainWindow):
         self.btn_go.clicked.connect(self._go_clicked)
         v.addWidget(self.btn_go)
 
-        row2 = QHBoxLayout()
+        self._mode_changed(self.tuner.index())
+        return box
+
+    def _build_view_row(self) -> QHBoxLayout:
+        """Fullscreen and outdoor-mode controls, under the image they act on.
+
+        They used to sit in the mode header, but they tune the *view*, not the
+        capture -- and the Field face carries its own big versions of them.
+        """
+        row = QHBoxLayout()
+        row.setContentsMargins(6, 0, 6, 0)
         btn_full = QPushButton("Fullscreen  (F11)")
         btn_full.clicked.connect(self._toggle_fullscreen)
-        row2.addWidget(btn_full)
+        row.addWidget(btn_full)
         self.chk_outdoor = QCheckBox("Outdoor mode")
         self.chk_outdoor.setToolTip(
             "Contrast-stretches the preview and burns in its edges, so the\n"
             "subject stays findable on a screen washed out by sunlight.")
         self.chk_outdoor.toggled.connect(self._outdoor_toggled)
-        row2.addWidget(self.chk_outdoor)
+        row.addWidget(self.chk_outdoor)
         self.cmb_outdoor = QComboBox()
         self.cmb_outdoor.addItems(["boost", "edges only"])
         self.cmb_outdoor.currentIndexChanged.connect(self._outdoor_style_changed)
-        row2.addWidget(self.cmb_outdoor)
-        v.addLayout(row2)
-
-        row3 = QHBoxLayout()
-        row3.addWidget(QLabel("edge stripe"))
+        row.addWidget(self.cmb_outdoor)
+        row.addWidget(QLabel("stripe"))
         sp = QSpinBox()
         sp.setRange(1, 12)
         sp.setValue(int(self.cfg.get("outdoor_stripe_px", 3)))
@@ -682,8 +736,8 @@ class MainWindow(QMainWindow):
         sp.valueChanged.connect(
             lambda x: (self.cfg.__setitem__("outdoor_stripe_px", x), self._save(),
                        setattr(self.preview, "stripe_px", x), self.preview.update()))
-        row3.addWidget(sp)
-        row3.addWidget(QLabel("sensitivity"))
+        row.addWidget(sp)
+        row.addWidget(QLabel("sensitivity"))
         sd = QDoubleSpinBox()
         sd.setRange(0.2, 6.0)
         sd.setSingleStep(0.2)
@@ -692,14 +746,11 @@ class MainWindow(QMainWindow):
             lambda x: (self.cfg.__setitem__("outdoor_strength", x), self._save(),
                        setattr(self.preview, "outdoor_strength", x),
                        self.preview.update()))
-        row3.addWidget(sd)
-        row3.addStretch(1)
-        v.addLayout(row3)
+        row.addWidget(sd)
+        row.addStretch(1)
         self.preview.stripe_px = int(self.cfg.get("outdoor_stripe_px", 3))
         self.preview.outdoor_strength = float(self.cfg.get("outdoor_strength", 1.0))
-
-        self._mode_changed(self.tuner.index())
-        return box
+        return row
 
     def _hide_redundant_buttons(self) -> None:
         """One START button now drives every mode, so the per-mode ones go.
@@ -1065,7 +1116,7 @@ class MainWindow(QMainWindow):
         cb_g = QCheckBox("Thirds grid")
         cb_g.toggled.connect(lambda s: setattr(self.preview, "show_grid", s))
         gv.addWidget(cb_g)
-        gv.addWidget(QLabel("Focus aids have moved to the Focus tab."))
+        gv.addWidget(QLabel("Focus aids live in Scene > Focus aids."))
         v.addWidget(geo)
 
         v.addStretch(1)
@@ -1355,19 +1406,19 @@ class MainWindow(QMainWindow):
         self.preview.update()
 
     def _tab_changed(self, index: int) -> None:
-        """Turn the focus map on automatically while the Focus tab is open."""
         if not hasattr(self, "_tabs"):
             return
-        on_focus_tab = self._tabs.tabText(index) == "Focus"
-        if on_focus_tab and not self.chk_fmap.isChecked():
+        if self._tabs.tabText(index) == "Machine":
+            self._refresh_cascade()
+
+    def _focus_section_toggled(self, on: bool) -> None:
+        """The focus map costs a Laplacian pass per frame, so it follows the
+        Focus section the way it used to follow the old Focus tab."""
+        if on and not self.chk_fmap.isChecked():
             self.chk_fmap.setChecked(True)
             self.chk_sharp_num.setChecked(True)
-        elif not on_focus_tab and self.chk_fmap.isChecked():
+        elif not on and self.chk_fmap.isChecked():
             self.chk_fmap.setChecked(False)
-        if self._tabs.tabText(index) == "Encode":
-            self._refresh_sources()
-        if self._tabs.tabText(index) == "Cascade":
-            self._refresh_cascade()
 
     # ------------------------------------------------------------------
     def _tab_encode(self) -> QWidget:
@@ -1862,7 +1913,7 @@ class MainWindow(QMainWindow):
         v.addWidget(QLabel(
             "Captures at a fixed interval with auto-exposure running between\n"
             "frames, into a tlc-<timestamp> folder.\n\n"
-            "To turn a finished run into a movie, use the Encode tab."
+            "To turn a finished run into a movie, use the Library face."
         ))
         v.addStretch(1)
         return page
@@ -2256,6 +2307,115 @@ class MainWindow(QMainWindow):
         v.addStretch(1)
         return page
 
+    def _tab_health(self) -> QWidget:
+        """The doctor checklist, in the window that needs it configured.
+
+        On nine distribution channels the first question is always "what does
+        this install actually have" -- the same rows birdshot-cli doctor
+        prints, so the GUI and the CLI can never tell different stories.
+        """
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.addWidget(QLabel(
+            "Platform, modules, binaries, cameras, storage and config --\n"
+            "the same checklist as birdshot-cli doctor."
+        ))
+        self.txt_doctor = QTextEdit()
+        self.txt_doctor.setReadOnly(True)
+        self.txt_doctor.setMaximumHeight(260)
+        self.txt_doctor.setStyleSheet("font-family:monospace;font-size:11px;")
+        self.txt_doctor.setPlainText("checking...")
+        v.addWidget(self.txt_doctor)
+        row = QHBoxLayout()
+        btn = QPushButton("Run doctor again")
+        btn.clicked.connect(self._run_doctor)
+        row.addWidget(btn)
+        self.lbl_doctor_stamp = QLabel("running at startup...")
+        self.lbl_doctor_stamp.setStyleSheet("color:#888;")
+        row.addWidget(self.lbl_doctor_stamp)
+        row.addStretch(1)
+        v.addLayout(row)
+        v.addStretch(1)
+        return page
+
+    def _tab_identity(self) -> QWidget:
+        """Who took the picture, with what glass -- the EXIF the manual
+        C-mount lens cannot report. Consumed at encode/assemble time from
+        index.jsonl; nothing here touches capture speed."""
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.addWidget(self._check("exif_enabled",
+                                "Write EXIF when encoding or assembling"))
+        form = QFormLayout()
+        form.addRow("Camera make", self._line("exif_make"))
+        form.addRow("Camera model", self._line("exif_model"))
+        form.addRow("Lens", self._line("exif_lens"))
+        form.addRow("Focal length (0 = not recorded)",
+                    self._spin("exif_focal_mm", 0.0, 2000.0, 1.0, decimals=1,
+                               suffix=" mm"))
+        form.addRow("F-number (0 = not recorded)",
+                    self._spin("exif_fnumber", 0.0, 64.0, 0.1, decimals=1))
+        form.addRow("Artist", self._line("exif_artist"))
+        form.addRow("Copyright", self._line("exif_copyright"))
+        v.addLayout(form)
+        v.addStretch(1)
+        return page
+
+    def _line(self, key: str) -> QLineEdit:
+        w = QLineEdit(str(self.cfg[key] or ""))
+
+        def done():
+            self.cfg[key] = w.text()
+            self._save()
+
+        w.editingFinished.connect(done)
+        return w
+
+    def _run_doctor(self) -> None:
+        """Collect the checklist off the GUI thread (it probes cameras)."""
+        if getattr(self, "_doctor_thread", None) and self._doctor_thread.is_alive():
+            return
+
+        def work():
+            from birdshot import doctor
+            try:
+                rows = doctor.collect(self.cfg)
+            except Exception as exc:  # noqa: BLE001 -- report, never crash
+                rows = [(doctor.FAIL, "doctor", repr(exc))]
+            self.bridge.event.emit("doctor", {"rows": rows})
+
+        self._doctor_thread = threading.Thread(target=work, daemon=True,
+                                               name="doctor")
+        self._doctor_thread.start()
+
+    def _on_doctor(self, payload: Dict[str, Any]) -> None:
+        rows = payload.get("rows") or []
+        self.txt_doctor.setPlainText(
+            "\n".join("%-4s  %-14s %s" % tuple(r) for r in rows))
+        self.lbl_doctor_stamp.setText("checked %s" % time.strftime("%H:%M:%S"))
+        failed = [n for s, n, _ in rows if s == "FAIL"]
+        warned = [n for s, n, _ in rows if s == "warn"]
+        if failed:
+            text, color = "doctor: FAIL - %s" % ", ".join(failed), "#ff6a44"
+        elif warned:
+            text, color = "doctor: %d warning(s)" % len(warned), "#e0a828"
+        else:
+            text, color = "doctor: ok", "#5fd07a"
+        self.btn_doctor.setText(text)
+        self.btn_doctor.setStyleSheet(
+            "QPushButton{border:none;background:transparent;color:%s;"
+            "font-family:monospace;font-size:11px;}"
+            "QPushButton:hover{text-decoration:underline;}" % color)
+        if "Install health - doctor" in self._acc:
+            self._acc["Install health - doctor"].set_summary(text)
+
+    def _open_health(self) -> None:
+        self.set_face("bench")
+        self.select_tab("Machine")
+        acc = self._acc.get("Install health - doctor")
+        if acc is not None:
+            acc.set_expanded(True)
+
     # ==================================================================
     # actions
     # ==================================================================
@@ -2471,6 +2631,10 @@ class MainWindow(QMainWindow):
             "%d px wide" % self.cfg["encode_width"] if self.cfg["encode_width"]
             else "native",
             "on" if self.cfg["exif_enabled"] else "off"))
+        put("Identity", "EXIF %s%s" % (
+            "on" if self.cfg["exif_enabled"] else "off",
+            (" - %s" % self.cfg["exif_artist"]) if self.cfg["exif_artist"]
+            else ", no artist set"))
 
     def _refresh_status(self) -> None:
         self._check_space()
@@ -2549,7 +2713,7 @@ class MainWindow(QMainWindow):
             for t in st["tiers"]:
                 lines.append("  %-28s %7.1f GB free" % (t["label"], t["free_mb"] / 1024))
             lines += ["", "What will free space:",
-                      "  - Flush to the archive:  Storage tab -> Flush everything down",
+                      "  - Flush to the archive:  Machine > Cascade -> Flush everything down",
                       "  - Swap or empty the USB stick",
                       "  - Turn on ring mode to drop the oldest footage automatically",
                       "  - Delete finished sessions from the archive"]
