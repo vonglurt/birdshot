@@ -23,9 +23,16 @@ to the Mac over the network.
 > one static binary for macOS, Windows, Linux and the BSDs, roughly an
 > order of magnitude faster through the identical metering/AE/gates path,
 > and carrying the Horizons layer (solar ephemeris, sunset shoot planning,
-> multi-day alignment) that this line only had on paper. Headless parity
-> today; the GUI and the platform camera backends are the 2.0.0 work.
-> This Python tree remains the deployed instrument on the Pi.
+> multi-day alignment) that this line only had on paper. The desktop GUI
+> (Qt 6, optional) rewrites the four faces over the native core, and the
+> first platform camera backend (AVFoundation) captures real frames;
+> V4L2, Media Foundation and libcamera — the Pi, the one that cuts the
+> release — are the remaining 2.0.0 ports. The design docs live with it:
+> [ARCHITECTURE.md](native/ARCHITECTURE.md) (the nine rules and the
+> layers), [PHYSICS.md](native/PHYSICS.md) (every tuned number and the
+> control that sets it), [PARITY.md](native/PARITY.md) (the honest ledger
+> against this tree). This Python tree remains the deployed instrument on
+> the Pi.
 
 ---
 

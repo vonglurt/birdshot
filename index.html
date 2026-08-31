@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>birdshot — bird and sky capture for the Raspberry Pi HQ Camera</title>
-<meta name="description" content="Metered auto-exposure, quality gates and a tiered storage cascade for the IMX477 on a Raspberry Pi Compute Module 4. MIT licensed.">
+<meta name="description" content="Metered auto-exposure, quality gates and bird-flight detection for the IMX477 — now rewritten in dependency-free C++17 with a solar ephemeris and shoot planning. MIT licensed.">
 <link rel="canonical" href="https://birdshot.org/">
 <meta property="og:title" content="birdshot">
-<meta property="og:description" content="Bird and sky capture for the Raspberry Pi HQ Camera.">
+<meta property="og:description" content="Bird and sky capture for the Raspberry Pi HQ Camera. The 2.0 native line: one static binary, zero dependencies.">
 <meta property="og:url" content="https://birdshot.org/">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%230B1017%22/><circle cx=%2216%22 cy=%2216%22 r=%227%22 fill=%22none%22 stroke=%22%23F0A63C%22 stroke-width=%222.5%22/><circle cx=%2216%22 cy=%2216%22 r=%222%22 fill=%22%23FFE3B0%22/></svg>">
@@ -58,6 +58,7 @@ h1{
 h1 .dot{color:var(--amber)}
 .lede{font-size:clamp(1.15rem,1rem + .9vw,1.6rem);line-height:1.45;max-width:34ch;margin:0 0 1.75rem;color:var(--paper)}
 .sub{color:var(--mute);max-width:56ch;margin:0 0 2rem}
+.sub strong{color:var(--paper);font-weight:600}
 
 /* ---- the exposure ladder : signature ---- */
 .ladder-head{
@@ -126,7 +127,7 @@ td{font-family:var(--mono);font-size:.82rem;color:var(--sky)}
 td:first-child{color:var(--paper)}
 td.hi{color:var(--amber)}
 
-/* ---- cascade ---- */
+/* ---- cascade / tier cards ---- */
 .cascade{display:flex;flex-wrap:wrap;align-items:stretch;gap:.5rem;margin:0 0 1.25rem}
 .tier{
   flex:1 1 9rem;background:var(--panel);border:1px solid var(--slate);
@@ -135,6 +136,27 @@ td.hi{color:var(--amber)}
 .tier h3{font-family:var(--mono);font-size:.78rem;font-weight:500;margin:0 0 .3rem;color:var(--paper);letter-spacing:.04em}
 .tier p{margin:0;font-size:.78rem;color:var(--mute);font-family:var(--mono)}
 .arrow{align-self:center;color:var(--slate);font-family:var(--mono);font-size:1.1rem}
+
+/* ---- the papers ---- */
+.docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(16rem,1fr));gap:.6rem;margin:0 0 1.25rem;padding:0;list-style:none}
+.doc{
+  background:var(--panel);border:1px solid var(--slate);border-left:3px solid var(--c,var(--sky));
+  padding:.85rem 1rem;border-radius:0 2px 2px 0;
+}
+.doc a{font-family:var(--mono);font-size:.85rem;font-weight:500;text-decoration:none;display:block;margin-bottom:.25rem}
+.doc a:hover{text-decoration:underline}
+.doc p{margin:0;font-size:.82rem;color:var(--mute);line-height:1.5}
+.doc .k{font-family:var(--mono);font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);display:block;margin-bottom:.35rem}
+
+/* ---- contribute ---- */
+.ways{list-style:none;margin:0 0 1.5rem;padding:0}
+.ways li{
+  display:grid;grid-template-columns:auto 1fr;gap:1rem;align-items:baseline;
+  padding:.7rem 0;border-bottom:1px solid rgba(42,59,80,.45);
+}
+.ways .w{font-family:var(--mono);font-size:.78rem;color:var(--amber);white-space:nowrap}
+.ways p{margin:0;font-size:.92rem;color:var(--mute)}
+.ways p strong{color:var(--paper);font-weight:600}
 
 /* ---- pending / empty state ---- */
 .pending{
@@ -159,6 +181,7 @@ footer{border-top:1px solid var(--slate);padding:2.5rem 0 4rem;color:var(--mute)
   .rung{grid-template-columns:3.6rem 1fr}
   .rung-desc{grid-column:1 / -1;text-align:left;font-size:.75rem}
   .rung-note{grid-column:1 / -1}
+  .ways li{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none !important;transition:none !important}
@@ -172,7 +195,8 @@ footer{border-top:1px solid var(--slate);padding:2.5rem 0 4rem;color:var(--mute)
     <b>birdshot</b>
     <span>IMX477 · Pi CM4</span>
     <span class="sp"></span>
-    <span class="tag">1.0.0-rc1</span>
+    <span class="tag">2.0.0-rc1 · migration</span>
+    <a href="https://github.com/vonglurt/birdshot/releases">Releases</a>
     <a href="https://github.com/vonglurt/birdshot">GitHub</a>
   </div>
 </div>
@@ -182,8 +206,16 @@ footer{border-top:1px solid var(--slate);padding:2.5rem 0 4rem;color:var(--mute)
   <p class="lede">Bird and sky capture for the Raspberry&nbsp;Pi HQ Camera.</p>
   <p class="sub">An IMX477 on a Compute Module 4, driven properly — metered auto-exposure
   that holds through a changing sky, quality gates that discard the frames you would have
-  deleted anyway, and a storage cascade that runs a session until the <em>last</em> disk
-  fills rather than the first.</p>
+  deleted anyway, and a detector that fires a burst on its own when a bird is sharp
+  against the sky.</p>
+  <p class="sub"><strong>The 2.0 line is a rewrite in dependency-free C++17</strong> — no
+  Python, no runtime, no third-party code. The math kit, the JSON, the JPEG codec (both
+  directions), the EXIF writer and the NOAA solar ephemeris are all in-tree; one CMake
+  build targets macOS, Windows, Linux and the BSDs and ships as one static file. The
+  same pipeline that ran at 21&nbsp;fps in numpy runs at <strong>~475&nbsp;fps</strong>
+  in the native engine, and the <strong>Horizons</strong> layer — sunset planning,
+  per-evening azimuth drift, multi-day alignment by solar elevation — went from design
+  review to shipped code.</p>
 
   <div class="ladder-head"><span>The exposure ladder</span><span>19.1 s → 1/8000 s</span></div>
   <ul class="ladder">
@@ -276,13 +308,43 @@ footer{border-top:1px solid var(--slate);padding:2.5rem 0 4rem;color:var(--mute)
   <code>s&lt;N&gt;</code> is tenths of a second, <code>ms&lt;N&gt;</code> tenths of a
   millisecond, <code>us&lt;N&gt;</code> plain microseconds — the naming the predecessor
   scripts used, extended downwards so bird work fits. Old night captures still sort
-  alongside new ones.</p>
+  alongside new ones, and both lines write the same folders.</p>
 
-  <pre class="clone"><span class="c"># on the Mac</span>
+  <pre class="clone"><span class="c"># anywhere a C++17 compiler exists</span>
 git clone https://github.com/vonglurt/birdshot
-cd birdshot &amp;&amp; make hooks
+cd birdshot &amp;&amp; make build          <span class="c"># finds Qt 6 for the GUI if present</span>
+native/build/birdshot selftest      <span class="c"># 34 checks, no hardware needed</span>
+native/build/birdshot birdflight -v <span class="c"># watch the synthetic sky, fire on the bird</span></pre>
+  <pre class="clone"><span class="c"># the deployed 1.x instrument on the Pi</span>
 PI_HOST=pi@raspberrypi.local ./prototype/sync.sh push</pre>
 </header>
+
+<section class="wrap">
+  <p class="eyebrow">Two lines, one contract</p>
+  <h2>The prototype is the specification</h2>
+  <p class="say">The 1.x Python line — deployed and running on the CM4 — continues under
+  <code>prototype/</code>, deprecated: bug fixes only, retiring when a native camera
+  backend shoots real frames on the Pi. The 2.0 native line is held to <strong>behavioural
+  parity</strong> with it: same <code>settings.json</code> keys and defaults, same session
+  folders, same <code>index.jsonl</code> records, same verdict words — a native install
+  dropped onto a machine that ran the Python line picks up its tuning unchanged. Where
+  1.x encoded a tuned behaviour, the port carries the tuning, not just the shape.</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Pipeline (identical path)</th><th>1.x on the CM4</th><th>2.0 native, laptop</th></tr></thead>
+    <tbody>
+      <tr><td>RAPID — metering + AE only</td><td>21 fps</td><td class="hi">~475 fps</td></tr>
+      <tr><td>COLLECT — full gates + focus</td><td>3.3–10.4 fps</td><td class="hi">~190 fps</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="say">The native line already captures real frames through AVFoundation
+  (macOS webcams and external cameras); V4L2, Media Foundation and libcamera are the
+  remaining ports — the IMX477 on the CM4, the instrument itself, is the one
+  <code>2.0.0</code> final waits for. The desktop GUI (Qt 6, optional at build time)
+  carries the four faces — Camera, Field, Bench, Library — the live Bird Flight gate
+  ladder, and a Bench rail where every key the core reads has a bound control.</p>
+</section>
 
 <section class="wrap">
   <p class="eyebrow">Measured, not assumed</p>
@@ -303,8 +365,8 @@ PI_HOST=pi@raspberrypi.local ./prototype/sync.sh push</pre>
     </tbody>
   </table>
   </div>
-  <p class="say">Encode threads are set to three: measured identical to six on this board,
-  and it leaves a core for the capture loop and the GUI.</p>
+  <p class="say">Those are 1.x numbers on the CM4; the native engine's are above. The Pi
+  will be slower than the laptop — it will not be slower than Python.</p>
 </section>
 
 <section class="wrap">
@@ -329,25 +391,100 @@ PI_HOST=pi@raspberrypi.local ./prototype/sync.sh push</pre>
   <p class="say">Two things it does <strong>not</strong> do, stated plainly because they are
   easy to assume: it does not make capture faster, and it does not raise the sustained rate
   above the slowest tier. The upper tiers absorb bursts; over a long run the cascade can
-  only shift data as fast as the bottom tier accepts it. The GUI predicts the resulting run
-  length up front.</p>
+  only shift data as fast as the bottom tier accepts it. The cascade runs in the 1.x line
+  today and migrates to the native line with the Pi backend it serves — in the native GUI
+  the section is greyed with exactly that reason.</p>
+</section>
+
+<section class="wrap">
+  <p class="eyebrow">The papers</p>
+  <h2>Design docs and reports</h2>
+  <p class="say">The tree explains itself in prose as deliberately as it does in code —
+  every tuned constant has a written reason, and every edge is stated rather than
+  hidden.</p>
+  <ul class="docs">
+    <li class="doc" style="--c:#F0A63C"><span class="k">design</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/native/ARCHITECTURE.md">ARCHITECTURE.md</a>
+      <p>Nine design rules, each earned; the layer diagram; how the GUI reduces to four mechanisms. The native line's constitution.</p></li>
+    <li class="doc" style="--c:#F0A63C"><span class="k">design</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/native/PHYSICS.md">PHYSICS.md</a>
+      <p>Every tuned number, the physics behind it, and the control that sets it — the EV-space PID, the gates, the Bird Flight ladder, the solar constants, the full settings-key reference.</p></li>
+    <li class="doc" style="--c:#F0A63C"><span class="k">design</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/native/PARITY.md">PARITY.md</a>
+      <p>The honest ledger against the prototype: what is at parity, what 2.0 adds, what stays Pi-bound, and the key-by-key config appendix.</p></li>
+    <li class="doc" style="--c:#7FA8CC"><span class="k">operate</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/docs/GUIDE.md">Operating guide</a>
+      <p>The 1.x field tutorial: every mode, every parameter's effect, five measured example configurations, troubleshooting.</p></li>
+    <li class="doc" style="--c:#7FA8CC"><span class="k">operate</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/native/README.md">Native README</a>
+      <p>Why the rewrite, what is in the RC and what is not, the build recipe, the module map, the release rule.</p></li>
+    <li class="doc" style="--c:#7FA8CC"><span class="k">operate</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/docs/PACKAGING.md">PACKAGING.md</a>
+      <p>How the same binary ships through Flatpak, deb, rpm, Homebrew and the FreeBSD ports.</p></li>
+    <li class="doc" style="--c:#8FA1B5"><span class="k">record</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/CHANGELOG.md">CHANGELOG.md</a>
+      <p>The narrative record — each change with its reasoning, including the publication audit and the rewritten history.</p></li>
+    <li class="doc" style="--c:#8FA1B5"><span class="k">record</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/docs/lab-reports/lab-report-birdshot-publication.md">Lab report: publication</a>
+      <p>What the pre-publication audit found, what was done about it, and what remains open.</p></li>
+    <li class="doc" style="--c:#8FA1B5"><span class="k">record</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/docs/ROADMAP.md">ROADMAP.md</a>
+      <p>Where the lines stand, how releases are named and shipped, and the backlog.</p></li>
+    <li class="doc" style="--c:#FFE3B0"><span class="k">field card</span>
+      <a href="https://github.com/vonglurt/birdshot/blob/main/docs/BIRDS-VS-COWS.md">Birds v. Cows</a>
+      <p>One card. Laminate before pasture use. Records, for field personnel, why the camera points up.</p></li>
+  </ul>
+</section>
+
+<section class="wrap">
+  <p class="eyebrow">Contributing</p>
+  <h2>Ways in</h2>
+  <p class="say"><a href="https://github.com/vonglurt/birdshot/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>
+  has the rules of the house: signed commits, the <code>vendor/</code> rule (foreign code
+  lives there or nowhere — it is empty by design), the sanitisation pre-commit hook, and
+  the <code>make check</code> gate — build, selftest, lint, sanitise, vendor-check — that
+  every change passes. The work that is genuinely open:</p>
+  <ul class="ways">
+    <li><span class="w">camera backends</span>
+      <p><strong>The 2.0.0 ports.</strong> V4L2 (Linux/BSD), Media Foundation (Windows)
+      and libcamera (the Pi — the one that cuts the release). The interface is final and
+      small: five virtual calls behind <code>backend.cpp</code>, with AVFoundation as the
+      worked example. Honest capability strings and the GUI's gating do the rest.</p></li>
+    <li><span class="w">run the selftest</span>
+      <p><strong>Platforms are a contribution.</strong> <code>birdshot selftest</code> is
+      34 checks that run anywhere with no hardware; a pass (or a failure) on a platform
+      the CI matrix doesn't cover is signal worth an issue.</p></li>
+    <li><span class="w">replay footage</span>
+      <p><strong>Real birds tune the gates.</strong> The replay backend plays any folder
+      of baseline JPEGs through the live pipeline, so footage of birds against sky —
+      yours stays yours; the repository takes findings, not frames — is how
+      <code>bf_*</code> thresholds improve.</p></li>
+    <li><span class="w">packaging</span>
+      <p><strong>Own a channel.</strong> The manifests under <code>native/packaging/</code>
+      (Flatpak, deb, rpm, Homebrew, FreeBSD ports) each want a maintainer who runs that
+      system daily.</p></li>
+    <li><span class="w">security</span>
+      <p><strong>Read <a href="https://github.com/vonglurt/birdshot/blob/main/SECURITY.md">SECURITY.md</a>
+      first.</strong> The real exposure is publishing photographs of where you live, not a
+      defect in the code; the repository defends against that structurally, and reports
+      should respect the same line.</p></li>
+  </ul>
 </section>
 
 <section class="wrap">
   <p class="eyebrow">Screenshots</p>
-  <h2>Not yet photographed</h2>
+  <h2>Half no longer need the rig</h2>
   <div class="pending">
-    <h3>Pending — the rig is powered down</h3>
-    <p style="margin:0;color:var(--mute)">These are the captures this page has slots for.
-    They need the Pi running with the camera attached, so they are not here yet rather than
-    mocked up. <code>1.0.0-rc1</code> is a candidate for exactly this reason.</p>
+    <h3>Pending — by policy, not mockup</h3>
+    <p style="margin:0;color:var(--mute)">The repository's history contains no binaries,
+    so screenshots are linked when real, never staged. The native GUI changed what
+    "real" requires: <code>birdshot-gui --screenshot out.png</code> captures the live
+    app over the synthetic sky on any machine — no Pi needed. Still waiting on the
+    powered-on rig:</p>
     <ul>
-      <li><b>gui-main.png</b> — the capture tab, live preview with the on-image readout</li>
-      <li><b>gui-focus.png</b> — the focus monitor with the blur gate calibrated</li>
-      <li><b>gui-cascade.png</b> — the cascade tab mid-migration, predicted run length</li>
-      <li><b>gui-histogram.png</b> — histogram levels with black and white points set</li>
       <li><b>rig.jpg</b> — the CM4 and the IMX477 as actually mounted</li>
-      <li><b>frame-sample.jpg</b> — one full-resolution capture, EXIF intact</li>
+      <li><b>frame-sample.jpg</b> — one full-resolution capture from the instrument, EXIF intact</li>
+      <li><b>gui-field.png</b> — the Field face mid-watch, gate ladder live, on the Pi's own display</li>
     </ul>
   </div>
 </section>
@@ -357,27 +494,30 @@ PI_HOST=pi@raspberrypi.local ./prototype/sync.sh push</pre>
     <div>
       <h4>Documentation</h4>
       <p><a href="https://github.com/vonglurt/birdshot#readme">README</a> — the reference</p>
-      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/GUIDE.md">Operating guide</a> — the tutorial</p>
-      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/lab-reports/lab-report-birdshot-publication.md">Lab report</a> — the publication audit</p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/native/ARCHITECTURE.md">Architecture</a> · <a href="https://github.com/vonglurt/birdshot/blob/main/native/PHYSICS.md">Physics</a> · <a href="https://github.com/vonglurt/birdshot/blob/main/native/PARITY.md">Parity</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/GUIDE.md">Operating guide</a> · <a href="https://github.com/vonglurt/birdshot/blob/main/docs/ROADMAP.md">Roadmap</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/docs/lab-reports/lab-report-birdshot-publication.md">Lab report</a> · <a href="https://github.com/vonglurt/birdshot/blob/main/CHANGELOG.md">Changelog</a></p>
     </div>
     <div>
       <h4>Source</h4>
       <p><a href="https://github.com/vonglurt/birdshot">github.com/vonglurt/birdshot</a></p>
-      <p><a href="https://github.com/vonglurt/birdshot/blob/main/CONTRIBUTING.md">Contributing</a></p>
-      <p><a href="https://github.com/vonglurt/birdshot/blob/main/SECURITY.md">Security policy</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/releases">Releases</a> — binaries per platform</p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/vonglurt/birdshot/blob/main/SECURITY.md">Security</a></p>
+      <p><a href="https://github.com/vonglurt/birdshot/blob/main/THIRD-PARTY.md">THIRD-PARTY.md</a></p>
     </div>
     <div>
       <h4>Requires</h4>
-      <p>Raspberry Pi CM4, IMX477</p>
-      <p>Debian 11 · Python 3.9</p>
-      <p>picamera2 · numpy · PyQt5</p>
+      <p><b style="color:var(--paper)">2.0 native</b> — any C++17 compiler, CMake ≥ 3.16; Qt 6 optional, for the desktop GUI</p>
+      <p><b style="color:var(--paper)">1.x prototype</b> — Pi CM4 + IMX477, Debian 11, Python 3.9, picamera2 · numpy · PyQt5</p>
     </div>
   </div>
   <p class="warn"><strong style="color:var(--paper)">MIT</strong> — Copyright © 2026 Paul
-  Richeson. Nothing in the repository is anyone else's code. Its dependencies are another
-  matter: <strong style="color:var(--paper)">PyQt5 is GPL-3.0 or commercial</strong>, which
-  governs shipping an image containing both, though not cloning or running this source. The
-  GPL surface is confined to the GUI, so the headless capture path is copyleft-free —
+  Richeson. The native line is MIT all the way down: <code>vendor/</code> is empty by
+  policy, and the only links are system boundaries — the C++ standard library, sockets,
+  the platform camera frameworks, and (optionally, dynamically, under the LGPL) Qt 6, so
+  the application stays MIT. The old caveat — <strong style="color:var(--paper)">PyQt5 is
+  GPL-3.0 or commercial</strong> — now applies only to the deprecated 1.x GUI under
+  <code>prototype/</code>; the headless path was always copyleft-free.
   <a href="https://github.com/vonglurt/birdshot/blob/main/THIRD-PARTY.md">THIRD-PARTY.md</a>
   works through it.</p>
 </footer>
