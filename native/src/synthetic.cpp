@@ -11,7 +11,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "birdshot/backend.hpp"
+#include "backend_impl.hpp"
 #include "birdshot/config.hpp"
 #include "birdshot/mathkit.hpp"
 #include "birdshot/solar.hpp"
@@ -160,11 +160,7 @@ class SyntheticBackend final : public Backend {
 
 }  // namespace
 
-std::unique_ptr<Backend> make_backend(const Config& cfg) {
-  const std::string want = cfg.str("backend", "synthetic");
-  if (want != "synthetic" && want != "auto")
-    std::fprintf(stderr, "backend '%s' is not built into this binary; using synthetic\n",
-                 want.c_str());
+std::unique_ptr<Backend> make_synthetic_backend(const Config& cfg) {
   return std::make_unique<SyntheticBackend>(cfg);
 }
 

@@ -159,6 +159,9 @@ MainWindow::MainWindow(bs::Config& cfg, const QString& face) : cfg_(cfg) {
                 [this, faceNames, i] { setFace(faceNames[i]); });
   addShortcut(Qt::Key_Escape, [this] { dismissOverlay(); });
 
+  connect(faceCamera_->cmbCamera, QOverload<int>::of(&QComboBox::activated), this,
+          &MainWindow::switchCamera);
+  populateCameras();
   indexSettings();
   applyCapabilities();
   modeChanged(static_cast<int>(cfg_.num("shoot_mode", 0)));
@@ -169,7 +172,6 @@ MainWindow::MainWindow(bs::Config& cfg, const QString& face) : cfg_(cfg) {
   setFace(kFaces.contains(face) ? face : QStringLiteral("bench"));
 
   capture_->startPreview();
-  faceField_->setCameraLabel(capture_->backendName());
 
   tick_ = new QTimer(this);
   tick_->setInterval(1000);
@@ -363,12 +365,18 @@ QWidget* MainWindow::buildModeHeader() {
   // camera row
   auto* camRow = new QHBoxLayout;
   camRow->addWidget(new QLabel(QStringLiteral("camera")));
-  auto* cmbCam = new QComboBox;
-  cmbCam->addItem(capture_->backendName());
-  cmbCam->setToolTip(QStringLiteral(
+  cmbCameraRail_ = new QComboBox;
+  cmbCameraRail_->setToolTip(QStringLiteral(
       "Which device drives capture. 'Synthetic sky' is the built-in\ndemo scene -- no hardware "
-      "needed. Platform camera backends are\nthe 2.0.0 ports (native/README.md)."));
-  camRow->addWidget(cmbCam, 1);
+      "needed. Picking a webcam opens it\n(macOS may ask for camera permission the first "
+      "time)."));
+  connect(cmbCameraRail_, QOverload<int>::of(&QComboBox::activated), this,
+          &MainWindow::switchCamera);
+  camRow->addWidget(cmbCameraRail_, 1);
+  auto* btnRescan = new QPushButton(QStringLiteral("rescan"));
+  btnRescan->setToolTip(QStringLiteral("Look for cameras again, after plugging one in."));
+  connect(btnRescan, &QPushButton::clicked, this, &MainWindow::populateCameras);
+  camRow->addWidget(btnRescan);
   v->addLayout(camRow);
 
   // profile row
@@ -1114,6 +1122,8 @@ void MainWindow::applyCapabilities() {
        QStringLiteral("birdflight"), QStringLiteral("not available on %1").arg(cam));
   gate(QStringLiteral("Cascade - tiers, RAM buffer, flush"), QStringLiteral("cascade"),
        QStringLiteral("the cascade is not in the native line yet"));
+  gate(QStringLiteral("Exposure and tone"), QStringLiteral("exposure"),
+       QStringLiteral("%1 owns its own exposure - these have no effect here").arg(cam));
   gate(QStringLiteral("Identity - EXIF"), QStringLiteral("exif"),
        QStringLiteral("EXIF injection is not in the native line yet"));
 
@@ -1587,6 +1597,61 @@ void MainWindow::afterSettingsSwap() {
   applyCapabilities();
   refreshSummaries();
   refreshProvenance();
+}
+
+// --------------------------------------------------------------- cameras --
+
+void MainWindow::populateCameras() {
+  cameras_.clear();
+  for (const auto& cam : bs::list_cameras(cfg_)) cameras_ << cam;
+
+  const std::string wantBackend = cfg_.str("backend", "synthetic");
+  const int wantIndex = static_cast<int>(cfg_.num("camera_index", 0));
+  int selected = cameras_.size() - 1;  // synthetic is always last
+  QStringList labels;
+  for (int i = 0; i < cameras_.size(); ++i) {
+    const auto& cam = cameras_[i];
+    labels << (cam.backend == "synthetic"
+                   ? QString::fromStdString(cam.model)
+                   : QStringLiteral("%1  (%2)").arg(QString::fromStdString(cam.model),
+                                                    QString::fromStdString(cam.backend)));
+    if (cam.backend == wantBackend && cam.index == wantIndex) selected = i;
+  }
+  for (QComboBox* combo : {cmbCameraRail_, faceCamera_->cmbCamera}) {
+    const QSignalBlocker block(combo);
+    combo->clear();
+    combo->addItems(labels);
+    combo->setCurrentIndex(selected);
+  }
+  if (selected >= 0 && selected < labels.size()) faceField_->setCameraLabel(labels[selected]);
+}
+
+void MainWindow::switchCamera(int idx) {
+  if (idx < 0 || idx >= cameras_.size()) return;
+  if (capture_->recording()) {
+    log(QStringLiteral("stop the capture before switching cameras"));
+    populateCameras();  // snap the combos back to what is actually driving
+    return;
+  }
+  const bs::CameraInfo cam = cameras_[idx];
+  cfg_.set("backend", bs::Json(cam.backend));
+  cfg_.set("camera_index", bs::Json(cam.index));
+  saveCfg();
+  capture_->rebuildBackend();
+
+  const QString got = capture_->backendName();
+  if (cam.backend != "synthetic" && got.startsWith(QStringLiteral("synthetic"))) {
+    // make_backend fell back; say so where it cannot be missed.
+    lblBanner_->setText(QStringLiteral(
+        "could not open %1 -- using the synthetic sky (check camera permission)")
+        .arg(QString::fromStdString(cam.model)));
+    lblBanner_->show();
+  } else {
+    lblBanner_->hide();
+    log(QStringLiteral("camera: %1").arg(got));
+  }
+  applyCapabilities();
+  populateCameras();
 }
 
 // -------------------------------------------------------------- profiles --

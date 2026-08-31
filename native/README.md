@@ -72,10 +72,15 @@ Stated plainly, because an RC that hides its edges is not a candidate:
   remote use. Pieces whose core is not ported (video, cascade, EXIF,
   encode) are greyed in the GUI with the reason, exactly how the
   prototype gated what a camera could not do.
-- **Platform camera backends.** The backend interface is final and the
-  synthetic backend proves the pipeline; V4L2 (Linux/BSD), AVFoundation
-  (macOS), Media Foundation (Windows) and libcamera (Pi) are the ports to
-  write behind it. Real-bird tuning still happens on 1.x replay.
+- **Most platform camera backends.** The first one is in: **AVFoundation
+  (macOS)** captures real frames from real hardware through the full
+  pipeline -- webcams and external cameras, listed by the GUI's camera
+  selector, letterboxed to the shared 640x480 analysis plane. A webcam
+  owns its own exposure, so it declares no `exposure` capability and the
+  GUI greys those dials with the reason. V4L2 (Linux/BSD), Media
+  Foundation (Windows) and libcamera (Pi) are the remaining ports; the
+  IMX477 on the CM4 -- the instrument itself -- is the one 2.0.0 waits
+  for. Real-bird tuning still happens on 1.x replay.
 - **The cascade, EXIF injection and ffmpeg assembly.** Headless 1.x
   features that migrate after the camera backends, in that order.
 

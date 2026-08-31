@@ -37,6 +37,7 @@ endif()
 find_package(Threads REQUIRED)
 
 add_library(birdshot_core STATIC
+  src/backend.cpp
   src/json.cpp
   src/mathkit.cpp
   src/geo.cpp
@@ -58,6 +59,20 @@ add_library(birdshot_core STATIC
 )
 target_include_directories(birdshot_core PUBLIC include)
 target_link_libraries(birdshot_core PUBLIC Threads::Threads)
+
+# The macOS camera backend: platform frameworks, not third-party code --
+# a system boundary like the standard library. Other platforms' backends
+# (V4L2, Media Foundation, libcamera) join the same way.
+if(APPLE)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 17)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+  target_sources(birdshot_core PRIVATE src/avfoundation.mm)
+  set_source_files_properties(src/avfoundation.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  target_link_libraries(birdshot_core PUBLIC
+    "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo"
+    "-framework Foundation")
+endif()
 if(WIN32)
   # The viewfinder's loopback HTTP server.
   target_link_libraries(birdshot_core PUBLIC ws2_32)

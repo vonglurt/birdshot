@@ -92,6 +92,11 @@ uses Qt's C++ API directly under the LGPL, dynamically linked, so the
 application remains MIT and no copyleft obligation attaches. Without Qt on
 the build machine, the core and CLI build exactly as before.
 
+Platform camera backends (`native/src/avfoundation.mm` today; V4L2, Media
+Foundation and libcamera to follow) link only their operating system's own
+frameworks — a system boundary like libc, carrying no third-party code and
+no licensing consequence.
+
 ## External programs
 
 Invoked as separate processes via `subprocess`. Process invocation is an

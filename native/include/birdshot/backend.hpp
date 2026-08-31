@@ -36,8 +36,18 @@ class Backend {
   virtual Frame capture(int64_t exposure_us, double gain) = 0;
 };
 
-// The backend the config asks for. Unknown names fall back to synthetic
-// with a warning on stderr rather than refusing to run.
+// The backend the config asks for. Unknown or unopenable names fall back
+// to synthetic with a warning on stderr rather than refusing to run.
 std::unique_ptr<Backend> make_backend(const class Config& cfg);
+
+// A selectable capture device: which backend drives it, which device index
+// on that backend, and the human name a selector shows. The synthetic
+// scene is always present and always last, matching the 1.x convention.
+struct CameraInfo {
+  std::string backend;
+  int index = 0;
+  std::string model;
+};
+std::vector<CameraInfo> list_cameras(const class Config& cfg);
 
 }  // namespace bs

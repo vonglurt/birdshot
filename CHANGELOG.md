@@ -45,6 +45,20 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **The first platform camera backend, and a camera selector to pick it.**
+  AVFoundation (macOS) joins the synthetic scene behind the same five-call
+  backend interface: real frames from webcams and external cameras,
+  letterboxed to the shared 640x480 analysis plane, through the full
+  pipeline — gates, buckets, `index.jsonl`, verified end to end with a
+  real capture session. The core grew `list_cameras()` and a backend
+  dispatcher (`backend`/`camera_index` keys; `auto` deliberately stays
+  synthetic until the backends earn the default). The GUI's camera row is
+  now a live selector — Bench header and Camera face, with rescan — that
+  switches the backend, rebuilds capture, and re-runs capability gating:
+  on a webcam, Rapid gates off and the whole Exposure section greys with
+  "owns its own exposure", the 1.x rules working against a real device.
+  A camera that will not open falls back to the synthetic sky with a
+  banner naming the device and the likely permission fix.
 - **The native desktop GUI: the four faces, compiled.** `birdshot-gui`
   (`native/qt/`, Qt 6 Widgets) is a full rewrite of the prototype's GUI
   over the native core — same layout, same settings.json, same look

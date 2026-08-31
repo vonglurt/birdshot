@@ -115,6 +115,8 @@ class MainWindow : public QMainWindow {
   void searchPicked(const QString& text);
   void openResetDialog();
   void runDoctor();
+  void populateCameras();
+  void switchCamera(int idx);
   void refreshProfiles(const QString& select = {});
   void profileActivated(int idx);
   void profileSave(bool asNew);
@@ -156,6 +158,8 @@ class MainWindow : public QMainWindow {
   QLabel* lblModeHint_;
   QPushButton* btnGo_;
   QLineEdit* edSearch_;
+  QComboBox* cmbCameraRail_;
+  QList<bs::CameraInfo> cameras_;
   QComboBox* cmbProfile_;
   QLabel* lblBanner_;
   QLabel* lblLine_;

@@ -251,7 +251,6 @@ CameraFace::CameraFace(MainWindow* win, QWidget* parent) : QWidget(parent), win_
   cmbCamera = new QComboBox;
   cmbCamera->setMinimumWidth(190);
   cmbCamera->setToolTip(QStringLiteral("Which camera drives capture."));
-  cmbCamera->addItem(win_->capture()->backendName());
   bl->addWidget(cmbCamera);
 
   lay->addWidget(bar);
