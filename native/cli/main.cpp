@@ -4,6 +4,7 @@
 // birdshot -- headless control, the planner, alignment and the selftest.
 // One static binary per platform; `birdshot help` lists everything.
 #include <atomic>
+#include <cmath>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
