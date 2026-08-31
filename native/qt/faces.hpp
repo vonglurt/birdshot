@@ -108,6 +108,10 @@ class LibraryFace : public QWidget {
  public:
   explicit LibraryFace(MainWindow* win, QWidget* parent = nullptr);
   void refresh();
+  // The encode UI is built by the main window (it owns the job); the
+  // Library face is simply where it lives.
+  void adoptEncodePage(QWidget* page, const QString& gateReason);
+  QString sessionPath() const { return sessionPath_; }
 
  private:
   struct Entry {

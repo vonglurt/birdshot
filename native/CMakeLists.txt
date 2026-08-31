@@ -38,6 +38,8 @@ find_package(Threads REQUIRED)
 
 add_library(birdshot_core STATIC
   src/backend.cpp
+  src/exif.cpp
+  src/replay.cpp
   src/json.cpp
   src/mathkit.cpp
   src/geo.cpp

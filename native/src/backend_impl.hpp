@@ -16,6 +16,9 @@ class Config;
 
 std::unique_ptr<Backend> make_synthetic_backend(const Config& cfg);
 
+// Replay: a folder of stills through the real pipeline (replay.cpp).
+std::unique_ptr<Backend> make_replay_backend(const Config& cfg, std::string* err);
+
 #ifdef __APPLE__
 // The AVFoundation webcam backend (avfoundation.mm).
 std::vector<CameraInfo> avf_list_cameras();

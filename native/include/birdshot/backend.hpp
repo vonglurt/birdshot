@@ -19,7 +19,11 @@
 namespace bs {
 
 struct Frame {
-  Gray8 y;                 // the analysis-and-save luma plane
+  Gray8 y;                 // the 640x480 analysis plane every gate runs on
+  Gray8 full;              // optional native-resolution luma; empty = y is all there is.
+                           // When present it is what gets saved, and what the focus
+                           // measure's centre crop is cut from -- the 1.x rule that a
+                           // webcam should deliver the frame it actually captured.
   int64_t exposure_us = 0; // what the sensor actually did (may be quantised)
   double gain = 1.0;
   double lux = 0.0;        // scene luminance estimate, 0 = unknown

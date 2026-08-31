@@ -34,6 +34,11 @@ struct Gray8 {
   Gray8 centre_crop(int side) const;
 };
 
+// Scale-to-fit into w x h, centred, black bars, nearest neighbour -- the
+// letterboxing every non-4:3 source goes through on its way to the shared
+// analysis geometry.
+Gray8 letterbox(const Gray8& src, int w, int h);
+
 // Binary PGM (P5). Returns false on I/O failure.
 bool write_pgm(const Gray8& img, const std::string& path);
 bool read_pgm(const std::string& path, Gray8* out);

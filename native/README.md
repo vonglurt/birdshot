@@ -47,7 +47,7 @@ multi-day alignment, shoot planning) that 1.x only had as a design review:
 | **Alignment** | `birdshot align`: frames from different days paired by **solar elevation**, not clock time, plus a pixel-shift refiner for stacking |
 | **Storage** | `sess-`/`rapid-`/`tlc-` sessions, `s<N>`/`ms<N>`/`us<N>` buckets, centisecond names claimed with `O_EXCL`, `.part` renames, `index.jsonl`, resume state |
 | **JPEG** | an in-tree baseline JFIF encoder (luma), decodable by everything we could throw at it |
-| **Selftest** | 30 checks covering all of the above, including three end-to-end engine runs and a loopback fetch from the viewfinder; `ctest` wired |
+| **Selftest** | 33 checks covering all of the above, including three end-to-end engine runs, a loopback fetch from the viewfinder, and JPEG/EXIF/replay round-trips; `ctest` wired |
 
 The synthetic backend deserves a sentence: with a site configured it lights
 its sky from the **real solar elevation at your coordinates** — capture at
@@ -81,8 +81,10 @@ Stated plainly, because an RC that hides its edges is not a candidate:
   Foundation (Windows) and libcamera (Pi) are the remaining ports; the
   IMX477 on the CM4 -- the instrument itself -- is the one 2.0.0 waits
   for. Real-bird tuning still happens on 1.x replay.
-- **The cascade, EXIF injection and ffmpeg assembly.** Headless 1.x
-  features that migrate after the camera backends, in that order.
+- **The cascade and video.** EXIF injection (`birdshot exif`, in-tree
+  APP1 writer) and movie assembly (`birdshot assemble`, ffmpeg at arm's
+  length, plus the Library's encode panel) have landed; the storage
+  cascade and H.264 recording migrate with the Pi backend they serve.
 
 ## Build
 
@@ -134,10 +136,12 @@ that ran the Python line picks up its tuning. `--config` points anywhere.
 | `birdflight` | the auto-take gate ladder |
 | `backend`, `synthetic`, `engine` | capture: interface, reference backend, the loop |
 | `plan`, `align` | shoot planning and multi-day alignment |
-| `jpeg`, `image` | the baseline JFIF encoder and the luma plane |
+| `jpeg`, `image` | the baseline JFIF encoder AND decoder, and the luma plane |
+| `exif` | the in-tree APP1 writer behind `birdshot exif` and assembly |
+| `backend`, `replay` | backend dispatch; a folder of stills as a camera |
 | `gui` | PreviewPump (the shared idle capture loop) + the loopback HTTP viewfinder |
 | `../qt/` | the Qt Widgets front end: four faces, the Bench rail, the gate ladder |
-| `selftest` | the 30-check gate; `cli/main.cpp` is the binary |
+| `selftest` | the 33-check gate; `cli/main.cpp` is the binary |
 
 ## Versioning
 

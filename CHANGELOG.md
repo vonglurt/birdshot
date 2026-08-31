@@ -45,6 +45,36 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **EXIF, in-tree.** `birdshot exif <session>` stamps an APP1 (TIFF/Exif)
+  segment into every indexed frame, losslessly and atomically -- identity
+  from the `exif_*` keys, exposure/ISO/date-to-the-centisecond from
+  `index.jsonl`, birdshot's metrics in UserComment. Hand-built
+  little-endian TIFF, verified against exiftool, round-tripped by a new
+  selftest check. The Identity section in the GUI is un-gated and grew
+  the full field set.
+- **A JPEG decoder, in-tree -- and therefore a replay camera.** The
+  baseline sequential decoder (Huffman, DQT, restarts, 1- and 3-component
+  scans; luma reconstructed, chroma entropy-decoded and discarded) joins
+  the encoder in `jpeg.cpp`, 0.14 LSB round-trip error at q92. On top of
+  it, the replay backend: "Replay footage..." in the camera selector
+  plays any folder of baseline JPEGs -- birdshot's own sessions or a
+  camera's card -- through the real pipeline at a watchable pace, which
+  is how real-bird footage tunes the Bird Flight gates on a desk.
+- **Movie assembly.** `birdshot assemble <session>` -- ffmpeg at arm's
+  length, exactly as 1.x invoked it: index-driven frame order, gated
+  frames skipped unless `--all`, EXIF stamped first when enabled, encode
+  settings from the same `encode_*` keys. The Library face grew the
+  encode panel, which shells out to the CLI so there is exactly one
+  encode path; it gates itself with the reason when ffmpeg is missing.
+- **A Site section, and webcams save at native resolution.** Machine >
+  "Site - horizons" edits the site keys with a live sun readout
+  (elevation, azimuth, tonight's sunset time and where on the horizon it
+  lands) -- setting it turns the doctor green. Frames from backends that
+  deliver more than 640x480 now save at the delivered size while
+  analysis stays on the shared plane, and the focus measure's centre
+  crop cuts from the native plane -- the 1.1 webcam rule, ported. The
+  timelapse countdown ring now runs down between frames. Selftest: 33
+  checks.
 - **The first platform camera backend, and a camera selector to pick it.**
   AVFoundation (macOS) joins the synthetic scene behind the same five-call
   backend interface: real frames from webcams and external cameras,

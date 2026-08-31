@@ -12,6 +12,7 @@
 #include <QIcon>
 #include <QMessageBox>
 #include <QPixmap>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QTime>
 #include <QTimer>
@@ -621,6 +622,7 @@ LibraryFace::LibraryFace(MainWindow* win, QWidget* parent) : QWidget(parent), wi
   split->setSizes({260, 640, 280});
   lay->addWidget(split, 1);
 
+  // The encode area lives under the splitter; adoptEncodePage fills it.
   thumbTimer_ = new QTimer(this);
   thumbTimer_->setInterval(30);
   connect(thumbTimer_, &QTimer::timeout, this, &LibraryFace::loadMoreThumbs);
@@ -675,6 +677,26 @@ void LibraryFace::sessionPicked() {
   auto* item = lstSessions_->currentItem();
   sessionPath_ = item ? item->data(Qt::UserRole).toString() : QString();
   reloadGrid();
+  win_->refreshEncodeSources();  // point the encode source at what is being looked at
+}
+
+void LibraryFace::adoptEncodePage(QWidget* page, const QString& gateReason) {
+  auto* area = new QScrollArea;
+  area->setWidgetResizable(true);
+  area->setFrameShape(QFrame::NoFrame);
+  auto* holder = new QWidget;
+  auto* hv = new QVBoxLayout(holder);
+  hv->setContentsMargins(6, 0, 6, 4);
+  auto* acc = new Accordion(QStringLiteral("Encode photos into a movie"), false);
+  acc->addWidget(page);
+  acc->setSummary(QStringLiteral("pick a session above, then expand"));
+  if (!gateReason.isEmpty()) acc->setGated(gateReason);
+  hv->addWidget(acc);
+  area->setMaximumHeight(64);
+  connect(acc, &Accordion::toggledOpen, this,
+          [area](bool open) { area->setMaximumHeight(open ? 360 : 64); });
+  area->setWidget(holder);
+  static_cast<QVBoxLayout*>(layout())->addWidget(area);
 }
 
 QList<LibraryFace::Entry> LibraryFace::readSession(const QString& dir) const {

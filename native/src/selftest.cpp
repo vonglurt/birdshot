@@ -37,6 +37,7 @@
 #include "birdshot/birdflight.hpp"
 #include "birdshot/config.hpp"
 #include "birdshot/engine.hpp"
+#include "birdshot/exif.hpp"
 #include "birdshot/exposure.hpp"
 #include "birdshot/geo.hpp"
 #include "birdshot/gui.hpp"
@@ -655,6 +656,104 @@ std::string t_engine_ae_converges() {
   return "";
 }
 
+std::string t_jpeg_decode() {
+  Gray8 img(322, 242);  // odd-ish size exercises the MCU padding
+  for (int y = 0; y < img.h; ++y)
+    for (int x = 0; x < img.w; ++x) img.at(x, y) = static_cast<uint8_t>((3 * x + 2 * y) % 256);
+  const auto bytes = encode_jpeg(img, 92);
+  Gray8 back;
+  EXPECT(decode_jpeg(bytes, &back));
+  EXPECT(back.w == img.w && back.h == img.h);
+  double err = 0;
+  for (size_t i = 0; i < img.px.size(); ++i)
+    err += std::abs(static_cast<int>(img.px[i]) - static_cast<int>(back.px[i]));
+  err /= static_cast<double>(img.px.size());
+  EXPECT(err < 3.0);  // q92 round trip stays within a few LSB
+  return "";
+}
+
+std::string t_exif_roundtrip() {
+  Gray8 img(64, 48, 128);
+  auto jpeg = encode_jpeg(img, 90);
+  ExifInfo info;
+  info.make = "Raspberry Pi";
+  info.artist = "selftest";
+  info.exposure_us = 2000;
+  info.gain = 4.0;
+  info.when = 1788200000.25;
+  info.user_comment = "birdshot selftest";
+  auto out = inject_exif(jpeg, info);
+  EXPECT(!out.empty());
+  // Injecting again replaces, never stacks.
+  out = inject_exif(out, info);
+  int app1 = 0;
+  for (size_t i = 2; i + 4 < out.size() && out[i] == 0xFF && out[i + 1] != 0xDA;) {
+    if (out[i + 1] == 0xE1) ++app1;
+    i += 2 + ((static_cast<size_t>(out[i + 2]) << 8) + out[i + 3]);
+  }
+  EXPECT(app1 == 1);
+  // Walk the TIFF: II magic, IFD0 carries Make, the Exif IFD the exposure.
+  EXPECT(out[2] == 0xFF && out[3] == 0xE1);
+  EXPECT(std::memcmp(&out[6], "Exif\0\0", 6) == 0);
+  const uint8_t* t = &out[12];
+  EXPECT(t[0] == 'I' && t[1] == 'I');
+  auto r16 = [&](size_t at) { return static_cast<uint32_t>(t[at]) | (t[at + 1] << 8); };
+  auto r32 = [&](size_t at) {
+    return static_cast<uint32_t>(t[at]) | (t[at + 1] << 8) | (t[at + 2] << 16) |
+           (static_cast<uint32_t>(t[at + 3]) << 24);
+  };
+  const size_t ifd0 = r32(4);
+  const int n = static_cast<int>(r16(ifd0));
+  bool make_ok = false;
+  size_t exif_at = 0;
+  for (int i = 0; i < n; ++i) {
+    const size_t e = ifd0 + 2 + static_cast<size_t>(i) * 12;
+    const uint32_t tag = r16(e);
+    if (tag == 0x010F) {
+      const size_t val = r32(e + 8);
+      make_ok = std::memcmp(t + val, "Raspberry Pi", 12) == 0;
+    }
+    if (tag == 0x8769) exif_at = r32(e + 8);
+  }
+  EXPECT(make_ok);
+  EXPECT(exif_at > 0);
+  bool exposure_ok = false;
+  const int n2 = static_cast<int>(r16(exif_at));
+  for (int i = 0; i < n2; ++i) {
+    const size_t e = exif_at + 2 + static_cast<size_t>(i) * 12;
+    if (r16(e) == 0x829A) {
+      const size_t val = r32(e + 8);
+      exposure_ok = r32(val) == 2000 && r32(val + 4) == 1000000;
+    }
+  }
+  EXPECT(exposure_ok);
+  // And the whole thing still decodes as a JPEG.
+  Gray8 back;
+  EXPECT(decode_jpeg(out, &back));
+  EXPECT(back.w == 64 && back.h == 48);
+  return "";
+}
+
+std::string t_replay_backend() {
+  const fs::path dir = fs::path(tmp_root()) / "replay";
+  fs::create_directories(dir);
+  for (int i = 0; i < 3; ++i) {
+    Gray8 img(320, 240, static_cast<uint8_t>(60 + i * 60));
+    write_jpeg(img, (dir / ("frame" + std::to_string(i) + ".jpg")).string(), 90);
+  }
+  Config cfg((fs::path(tmp_root()) / "replay-settings.json").string());
+  cfg.set("backend", Json(std::string("replay")));
+  cfg.set("replay_path", Json(dir.string()));
+  auto backend = make_backend(cfg);
+  EXPECT(backend->name().rfind("replay", 0) == 0);
+  const Frame a = backend->capture(2000, 1.0);
+  const Frame b = backend->capture(2000, 1.0);
+  EXPECT(a.y.w == 640 && a.y.h == 480);
+  EXPECT(!a.full.empty());  // non-4:3-at-analysis-size sources keep the native plane
+  EXPECT(a.y.at(320, 240) != b.y.at(320, 240) || a.full.px != b.full.px);
+  return "";
+}
+
 // A one-shot loopback GET, just enough client to exercise the viewfinder.
 // The Viewfinder's own start() has already done any platform socket init.
 std::string loopback_get(int port, const char* path) {
@@ -745,6 +844,9 @@ int run_selftest(bool verbose) {
       {"gates: dark / blown / empty / ok", t_gates},
       {"gates: focus measures rank", t_focus_measures},
       {"jpeg: valid baseline stream", t_jpeg_markers},
+      {"jpeg: decoder round-trips the encoder", t_jpeg_decode},
+      {"exif: APP1 written, replaced, readable", t_exif_roundtrip},
+      {"replay: a folder of stills plays back", t_replay_backend},
       {"image: pgm round-trips", t_pgm_roundtrip},
       {"storage: layout and O_EXCL claims", t_storage_layout},
       {"config: persistence and merge", t_config_persistence},

@@ -15,6 +15,13 @@ namespace bs {
 
 std::unique_ptr<Backend> make_backend(const Config& cfg) {
   const std::string want = cfg.str("backend", "synthetic");
+  if (want == "replay") {
+    std::string err;
+    auto backend = make_replay_backend(cfg, &err);
+    if (backend) return backend;
+    std::fprintf(stderr, "replay: %s; using synthetic\n", err.c_str());
+    return make_synthetic_backend(cfg);
+  }
 #ifdef __APPLE__
   if (want == "avfoundation" || want == "webcam") {
     std::string err;
@@ -35,6 +42,7 @@ std::vector<CameraInfo> list_cameras(const Config&) {
 #ifdef __APPLE__
   for (const auto& cam : avf_list_cameras()) out.push_back(cam);
 #endif
+  out.push_back({"replay", 0, "Replay footage..."});
   out.push_back({"synthetic", 0, "Synthetic sky"});
   return out;
 }

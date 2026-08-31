@@ -12,6 +12,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "birdshot/backend.hpp"
 #include "birdshot/config.hpp"
 #include "birdshot/engine.hpp"
+#include "birdshot/exif.hpp"
 #include "birdshot/geo.hpp"
 #include "birdshot/gui.hpp"
 #include "birdshot/jpeg.hpp"
@@ -63,6 +65,8 @@ struct Args {
   double focal = 0.0;
   long long count = -1;
   int port = 0;
+  int fps = 0;
+  bool all = false;
   bool no_open = false;
   int days = 7;
   bool verbose = false;
@@ -131,6 +135,12 @@ bool parse_args(int argc, char** argv, int from, Args* out, std::string* err) {
       out->port = std::atoi(v);
     } else if (a == "--no-open") {
       out->no_open = true;
+    } else if (a == "--all") {
+      out->all = true;
+    } else if (a == "--fps") {
+      const char* v = need_value("--fps");
+      if (!v) return false;
+      out->fps = std::atoi(v);
     } else if (!a.empty() && a[0] == '-') {
       *err = "unknown option " + a;
       return false;
@@ -212,6 +222,8 @@ int usage() {
       "  site  set <lat,lon> [--name NAME] [--elev M] | show\n"
       "\n"
       "housekeeping\n"
+      "  exif <dir>                    stamp EXIF into a session's frames, losslessly\n"
+      "  assemble <dir> [--fps N] [--out FILE.mp4] [--all]   frames -> movie via ffmpeg\n"
       "  info | sessions | doctor | selftest | version\n"
       "\n"
       "  --config PATH overrides ~/.config/birdshot/settings.json everywhere\n",
@@ -372,6 +384,152 @@ int cmd_site(Config& cfg, const Args& args) {
   return 0;
 }
 
+// Find each indexed frame on disk by its centisecond stem, wherever the
+// shutter bucket put it.
+std::map<std::string, std::string> frames_by_stem(const std::string& dir) {
+  std::map<std::string, std::string> out;
+  std::error_code ec;
+  for (auto it = fs::recursive_directory_iterator(dir, ec);
+       it != fs::recursive_directory_iterator(); it.increment(ec)) {
+    if (ec) break;
+    if (!it->is_regular_file(ec)) continue;
+    const auto ext = it->path().extension().string();
+    if (ext == ".jpg" || ext == ".jpeg") out[it->path().stem().string()] = it->path().string();
+  }
+  return out;
+}
+
+int cmd_exif(Config& cfg, const Args& args) {
+  if (args.positional.empty()) {
+    std::fprintf(stderr, "exif wants a session directory\n");
+    return 2;
+  }
+  const std::string dir = args.positional[0];
+  Session session = Session::open(dir);
+  const auto index = session.read_index();
+  const auto files = frames_by_stem(dir);
+  int done = 0, failed = 0;
+  for (const auto& rec : index) {
+    const auto found = files.find(rec.get("name").str_or(""));
+    if (found == files.end()) continue;
+    ExifInfo info = exif_from_config(cfg);
+    info.exposure_us = static_cast<int64_t>(rec.get("exposure_us").number(0));
+    info.gain = rec.get("gain").number(0.0);
+    if (auto when = parse_timestamp_name(rec.get("name").str_or(""))) info.when = *when;
+    char comment[160];
+    std::snprintf(comment, sizeof comment,
+                  "birdshot verdict=%s sharpness=%.1f meter=%.0f clip=%.4f",
+                  rec.get("verdict").str_or("ok").c_str(),
+                  rec.get("sharpness_norm").number(0),
+                  rec.get("meter").number(0), rec.get("clip_hi").number(0));
+    info.user_comment = comment;
+    if (inject_exif_file(found->second, info)) ++done;
+    else ++failed;
+  }
+  std::printf("exif: %d frame(s) stamped, %d failed, %zu indexed\n", done, failed,
+              index.size());
+  return failed == 0 ? 0 : 1;
+}
+
+// Quote for /bin/sh. Paths come from the user's own disk; this is about
+// spaces, not trust.
+std::string shq(const std::string& s) {
+  std::string out = "'";
+  for (char c : s) out += c == '\'' ? std::string("'\\''") : std::string(1, c);
+  return out + "'";
+}
+
+// Frames -> movie, ffmpeg at arm's length (a separate process, exactly as
+// the 1.x line and mac/assemble.sh invoke it). Frame selection is the
+// same: index.jsonl drives the order and gated frames are skipped unless
+// --all. EXIF is stamped first when exif_enabled, losslessly.
+int cmd_assemble(Config& cfg, const Args& args) {
+  if (args.positional.empty()) {
+    std::fprintf(stderr, "assemble wants a session directory\n");
+    return 2;
+  }
+  if (std::system("ffmpeg -version >/dev/null 2>&1") != 0) {
+    std::fprintf(stderr, "ffmpeg is not installed (or not on PATH)\n");
+    return 1;
+  }
+  const std::string dir = args.positional[0];
+  Session session = Session::open(dir);
+  const auto index = session.read_index();
+  const auto files = frames_by_stem(dir);
+
+  std::vector<std::string> frames;
+  if (!index.empty()) {
+    for (const auto& rec : index) {
+      if (!args.all && rec.get("verdict").str_or("ok") != "ok") continue;
+      const auto found = files.find(rec.get("name").str_or(""));
+      if (found != files.end()) frames.push_back(found->second);
+    }
+  } else {
+    for (const auto& kv : files) frames.push_back(kv.second);  // map = name order
+  }
+  if (frames.empty()) {
+    std::fprintf(stderr, "no frames to assemble under %s\n", dir.c_str());
+    return 1;
+  }
+
+  if (cfg.boolean("exif_enabled", true) && !index.empty()) cmd_exif(cfg, args);
+
+  const int fps = args.fps > 0 ? args.fps : static_cast<int>(cfg.num("encode_fps", 60));
+  const int width = static_cast<int>(cfg.num("encode_width", 1920));
+  const int crf = static_cast<int>(cfg.num("encode_crf", 18));
+  const std::string preset = cfg.str("encode_preset", "veryfast");
+
+  std::string out_path = args.out_path;
+  if (out_path.empty()) {
+    const std::string movies =
+        expand_user(cfg.str("data_root", "~/birdshot-data")) + "/timelapse";
+    fs::create_directories(movies);
+    out_path = movies + "/" + fs::path(dir).filename().string() + "_" +
+               std::to_string(fps) + "fps.mp4";
+  }
+
+  const std::string list_path = out_path + ".frames.txt";
+  {
+    std::FILE* f = std::fopen(list_path.c_str(), "w");
+    if (!f) {
+      std::fprintf(stderr, "cannot write %s\n", list_path.c_str());
+      return 1;
+    }
+    std::fprintf(f, "ffconcat version 1.0\n");
+    for (const auto& p : frames) {
+      // ffmpeg resolves concat entries relative to the list file, so the
+      // list carries absolute paths. Quoting: single quotes doubled.
+      std::error_code aec;
+      const std::string abs = fs::absolute(p, aec).string();
+      std::string escaped;
+      for (char c : (aec ? p : abs))
+        escaped += c == '\'' ? std::string("'\\''") : std::string(1, c);
+      std::fprintf(f, "file '%s'\n", escaped.c_str());
+    }
+    std::fclose(f);
+  }
+
+  std::string cmd = "ffmpeg -hide_banner -loglevel error -y -r " + std::to_string(fps) +
+                    " -f concat -safe 0 -i " + shq(list_path);
+  if (width > 0) cmd += " -vf scale=" + std::to_string(width) + ":-2";
+  cmd += " -c:v libx264 -crf " + std::to_string(crf) + " -preset " + preset +
+         " -pix_fmt yuv420p " + shq(out_path);
+
+  std::printf("assembling %zu frame(s) at %d fps -> %s\n", frames.size(), fps,
+              out_path.c_str());
+  const int rc = std::system(cmd.c_str());
+  std::remove(list_path.c_str());
+  if (rc != 0) {
+    std::fprintf(stderr, "ffmpeg failed (%d)\n", rc);
+    return 1;
+  }
+  std::error_code ec;
+  const auto bytes = fs::file_size(out_path, ec);
+  std::printf("done: %.1f s of video, %.1f MB\n", static_cast<double>(frames.size()) / fps,
+              ec ? 0.0 : bytes / 1e6);
+  return 0;
+}
+
 int cmd_sessions(Config& cfg) {
   const std::string root = expand_user(cfg.str("data_root", "~/birdshot-data"));
   const auto sessions = list_sessions(root);
@@ -491,6 +649,8 @@ int main(int argc, char** argv) {
   if (cmd == "plan") return cmd_plan(cfg, args);
   if (cmd == "align") return cmd_align(cfg, args);
   if (cmd == "site") return cmd_site(cfg, args);
+  if (cmd == "exif") return cmd_exif(cfg, args);
+  if (cmd == "assemble") return cmd_assemble(cfg, args);
   if (cmd == "sessions") return cmd_sessions(cfg);
   if (cmd == "doctor") return cmd_doctor(cfg);
   if (cmd == "capture") return run_engine(cfg, Mode::Collect, args);

@@ -22,6 +22,8 @@
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTextEdit>
+#include <QProcess>
+#include <QProgressBar>
 #include <QTimer>
 
 #include "capture.hpp"
@@ -59,6 +61,7 @@ class MainWindow : public QMainWindow {
   void openPath(const QString& path);
   QString stateName() const;  // idle | burst | rapid | timelapse | birdflight
   double lastSharpness() const { return lastSharpness_; }
+  void refreshEncodeSources();  // the Library retargets this on session pick
 
  protected:
   void resizeEvent(QResizeEvent* e) override;
@@ -73,6 +76,7 @@ class MainWindow : public QMainWindow {
   QWidget* tabShoot();
   QWidget* tabScene();
   QWidget* tabMachine();
+  QWidget* buildEncodePage();
   Accordion* section(const QString& title, QWidget* page, bool expanded, int tab);
   QWidget* wrapTab(const QList<QWidget*>& sections);
 
@@ -124,6 +128,8 @@ class MainWindow : public QMainWindow {
   void afterSettingsSwap();
   void setSharpnessReference();
   void dismissOverlay();
+  void startEncode();
+  void refreshSunLabel();
 
   // capture wiring
   void onFrame(const FramePacket& p);
@@ -183,6 +189,15 @@ class MainWindow : public QMainWindow {
   QPushButton* btnDoctorChip_;
   QLabel* lblStateBar_;
   QLabel* lblFreeBar_;
+  QLabel* lblSun_ = nullptr;
+  QComboBox* cmbSource_ = nullptr;
+  QCheckBox* chkEncodeOk_ = nullptr;
+  QPushButton* btnEncode_ = nullptr;
+  QPushButton* btnEncodeCancel_ = nullptr;
+  QLabel* lblEncodeStatus_ = nullptr;
+  QProgressBar* progEncode_ = nullptr;
+  QProcess* encodeProc_ = nullptr;
+  HudInfo lastHud_;
 
   // live state
   qint64 sessionFrames_ = 0;

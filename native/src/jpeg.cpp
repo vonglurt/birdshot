@@ -254,3 +254,285 @@ bool write_jpeg(const Gray8& img, const std::string& path, int quality) {
 }
 
 }  // namespace bs
+
+// ---------------------------------------------------------- the decoder --
+// Baseline sequential only. The encoder above writes grayscale; cameras
+// and phones write 3-component 4:2:0 -- both land here when a replay
+// folder is pointed at them. Chroma blocks are entropy-decoded to keep
+// the bitstream honest, then discarded.
+
+namespace bs {
+
+namespace {
+
+struct HuffTable {
+  // Canonical code table, decoded by walking code lengths.
+  uint8_t counts[17] = {0};   // counts[len] for len 1..16
+  std::vector<uint8_t> symbols;
+  int32_t mincode[17] = {0};
+  int32_t maxcode[17] = {0};
+  int32_t valptr[17] = {0};
+  bool present = false;
+
+  void finish() {
+    int32_t code = 0, k = 0;
+    for (int len = 1; len <= 16; ++len) {
+      valptr[len] = k;
+      mincode[len] = code;
+      code += counts[len];
+      k += counts[len];
+      maxcode[len] = counts[len] ? code - 1 : -1;
+      code <<= 1;
+    }
+    present = true;
+  }
+};
+
+struct BitReader {
+  const uint8_t* p;
+  const uint8_t* end;
+  uint32_t bits = 0;
+  int nbits = 0;
+  bool bad = false;
+
+  BitReader(const uint8_t* data, const uint8_t* stop) : p(data), end(stop) {}
+
+  // Refill honoring byte stuffing; a marker mid-entropy is an error the
+  // caller surfaces as a failed decode.
+  void need(int n) {
+    while (nbits < n) {
+      if (p >= end) { bad = true; bits <<= 8; nbits += 8; continue; }
+      uint8_t byte = *p++;
+      if (byte == 0xFF) {
+        if (p < end && *p == 0x00) { ++p; }
+        else { bad = true; --p; byte = 0; }
+      }
+      bits = (bits << 8) | byte;
+      nbits += 8;
+    }
+  }
+  int get(int n) {
+    if (n == 0) return 0;
+    need(n);
+    const int v = static_cast<int>((bits >> (nbits - n)) & ((1u << n) - 1));
+    nbits -= n;
+    return v;
+  }
+  int decode(const HuffTable& t) {
+    int32_t code = get(1);
+    for (int len = 1; len <= 16; ++len) {
+      if (t.maxcode[len] >= 0 && code <= t.maxcode[len])
+        return t.symbols[t.valptr[len] + code - t.mincode[len]];
+      code = (code << 1) | get(1);
+    }
+    bad = true;
+    return 0;
+  }
+  void align() { nbits = 0; bits = 0; }
+};
+
+int extend(int v, int n) { return v < (1 << (n - 1)) ? v - (1 << n) + 1 : v; }
+
+// Separable float IDCT with the level shift folded in at the end.
+void idct8x8(const int32_t block[64], const uint16_t quant[64], uint8_t* out, int stride) {
+  static const int kZigzag[64] = {
+      0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
+      12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
+      35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+      58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+  static float cs[8][8];
+  static bool init = false;
+  if (!init) {
+    for (int u = 0; u < 8; ++u)
+      for (int x = 0; x < 8; ++x)
+        cs[u][x] = static_cast<float>((u == 0 ? 0.353553390593 : 0.5) *
+                                      std::cos((2 * x + 1) * u * 3.14159265358979 / 16.0));
+    init = true;
+  }
+  float coeff[64];
+  for (int i = 0; i < 64; ++i) coeff[kZigzag[i]] = static_cast<float>(block[i] * quant[i]);
+  float tmp[64];
+  for (int y = 0; y < 8; ++y)
+    for (int x = 0; x < 8; ++x) {
+      float acc = 0;
+      for (int u = 0; u < 8; ++u) acc += cs[u][x] * coeff[y * 8 + u];
+      tmp[y * 8 + x] = acc;
+    }
+  for (int x = 0; x < 8; ++x)
+    for (int y = 0; y < 8; ++y) {
+      float acc = 0;
+      for (int v = 0; v < 8; ++v) acc += cs[v][y] * tmp[v * 8 + x];
+      const int px = static_cast<int>(std::lround(acc + 128.0f));
+      out[y * stride + x] = static_cast<uint8_t>(px < 0 ? 0 : px > 255 ? 255 : px);
+    }
+}
+
+struct Component {
+  int id = 0, h = 1, v = 1, tq = 0, td = 0, ta = 0;
+  int pred = 0;
+};
+
+}  // namespace
+
+bool decode_jpeg(const std::vector<uint8_t>& data, Gray8* out) {
+  if (!out || data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
+
+  uint16_t quant[4][64] = {};
+  HuffTable dc[4], ac[4];
+  Component comps[3];
+  int ncomp = 0, width = 0, height = 0, restart = 0;
+  size_t i = 2;
+
+  auto u16 = [&](size_t at) {
+    return (static_cast<int>(data[at]) << 8) | data[at + 1];
+  };
+
+  while (i + 4 <= data.size()) {
+    if (data[i] != 0xFF) return false;
+    const uint8_t marker = data[i + 1];
+    if (marker == 0xD8) { i += 2; continue; }
+    const size_t len = static_cast<size_t>(u16(i + 2));
+    if (i + 2 + len > data.size()) return false;
+    const size_t seg = i + 4;
+
+    if (marker == 0xDB) {  // DQT
+      size_t at = seg;
+      while (at < i + 2 + len) {
+        const int prec = data[at] >> 4, id = data[at] & 15;
+        if (id > 3) return false;
+        ++at;
+        for (int k = 0; k < 64; ++k) {
+          quant[id][k] = prec ? static_cast<uint16_t>(u16(at)) : data[at];
+          at += prec ? 2 : 1;
+        }
+      }
+    } else if (marker == 0xC4) {  // DHT
+      size_t at = seg;
+      while (at < i + 2 + len) {
+        const int cls = data[at] >> 4, id = data[at] & 15;
+        if (id > 3) return false;
+        ++at;
+        HuffTable& t = cls ? ac[id] : dc[id];
+        t = HuffTable();
+        int total = 0;
+        for (int len2 = 1; len2 <= 16; ++len2) {
+          t.counts[len2] = data[at++];
+          total += t.counts[len2];
+        }
+        t.symbols.assign(data.begin() + at, data.begin() + at + total);
+        at += total;
+        t.finish();
+      }
+    } else if (marker == 0xC0 || marker == 0xC1) {  // SOF0/1 baseline
+      height = u16(seg + 1);
+      width = u16(seg + 3);
+      ncomp = data[seg + 5];
+      if (ncomp != 1 && ncomp != 3) return false;
+      for (int c = 0; c < ncomp; ++c) {
+        comps[c].id = data[seg + 6 + c * 3];
+        comps[c].h = data[seg + 7 + c * 3] >> 4;
+        comps[c].v = data[seg + 7 + c * 3] & 15;
+        comps[c].tq = data[seg + 8 + c * 3];
+        if (comps[c].h < 1 || comps[c].h > 4 || comps[c].v < 1 || comps[c].v > 4) return false;
+      }
+    } else if (marker == 0xC2) {
+      return false;  // progressive: not this decoder's job
+    } else if (marker == 0xDD) {  // DRI
+      restart = u16(seg);
+    } else if (marker == 0xDA) {  // SOS -- the scan
+      const int ns = data[seg];
+      if (ns != ncomp || width <= 0 || height <= 0) return false;
+      for (int c = 0; c < ns; ++c) {
+        const int id = data[seg + 1 + c * 2];
+        for (int k = 0; k < ncomp; ++k)
+          if (comps[k].id == id) {
+            comps[k].td = data[seg + 2 + c * 2] >> 4;
+            comps[k].ta = data[seg + 2 + c * 2] & 15;
+          }
+      }
+      int hmax = 1, vmax = 1;
+      for (int c = 0; c < ncomp; ++c) {
+        hmax = std::max(hmax, comps[c].h);
+        vmax = std::max(vmax, comps[c].v);
+      }
+      const int mcux = (width + 8 * hmax - 1) / (8 * hmax);
+      const int mcuy = (height + 8 * vmax - 1) / (8 * vmax);
+
+      // Luma plane, MCU-padded; cropped at the end.
+      const int lw = mcux * 8 * comps[0].h, lh = mcuy * 8 * comps[0].v;
+      std::vector<uint8_t> luma(static_cast<size_t>(lw) * lh, 0);
+
+      BitReader br(data.data() + i + 2 + len, data.data() + data.size());
+      for (int c = 0; c < ncomp; ++c) comps[c].pred = 0;
+      int until_restart = restart;
+
+      for (int my = 0; my < mcuy; ++my) {
+        for (int mx = 0; mx < mcux; ++mx) {
+          for (int c = 0; c < ncomp; ++c) {
+            Component& comp = comps[c];
+            if (!dc[comp.td].present || !ac[comp.ta].present) return false;
+            for (int by = 0; by < comp.v; ++by) {
+              for (int bx = 0; bx < comp.h; ++bx) {
+                int32_t block[64] = {0};
+                const int s = br.decode(dc[comp.td]);
+                const int diff = s ? extend(br.get(s), s) : 0;
+                comp.pred += diff;
+                block[0] = comp.pred;
+                for (int k = 1; k < 64;) {
+                  const int rs = br.decode(ac[comp.ta]);
+                  const int r = rs >> 4, size = rs & 15;
+                  if (size == 0) {
+                    if (r != 15) break;  // EOB unless ZRL
+                    k += 16;
+                    continue;
+                  }
+                  k += r;
+                  if (k > 63) break;
+                  block[k++] = extend(br.get(size), size);
+                }
+                if (br.bad) return false;
+                if (c == 0) {
+                  const int px = (mx * comp.h + bx) * 8, py = (my * comp.v + by) * 8;
+                  idct8x8(block, quant[comp.tq], &luma[static_cast<size_t>(py) * lw + px], lw);
+                }
+              }
+            }
+          }
+          if (restart && --until_restart == 0 && !(my == mcuy - 1 && mx == mcux - 1)) {
+            br.align();
+            // Consume the RSTn marker.
+            if (br.p + 2 <= br.end && br.p[0] == 0xFF && br.p[1] >= 0xD0 && br.p[1] <= 0xD7)
+              br.p += 2;
+            for (int c = 0; c < ncomp; ++c) comps[c].pred = 0;
+            until_restart = restart;
+          }
+        }
+      }
+
+      *out = Gray8(width, height);
+      for (int y = 0; y < height; ++y)
+        std::copy(luma.begin() + static_cast<size_t>(y) * lw,
+                  luma.begin() + static_cast<size_t>(y) * lw + width,
+                  out->px.begin() + static_cast<size_t>(y) * width);
+      return true;
+    } else if (marker == 0xD9) {
+      return false;  // EOI before any scan
+    }
+    i += 2 + len;
+  }
+  return false;
+}
+
+bool read_jpeg(const std::string& path, Gray8* out) {
+  std::FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return false;
+  std::fseek(f, 0, SEEK_END);
+  const long size = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  std::vector<uint8_t> data(static_cast<size_t>(size > 0 ? size : 0));
+  const bool ok = size > 0 && std::fread(data.data(), 1, data.size(), f) == data.size();
+  std::fclose(f);
+  return ok && decode_jpeg(data, out);
+}
+
+}  // namespace bs

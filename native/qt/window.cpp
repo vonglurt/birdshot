@@ -16,6 +16,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -27,6 +28,8 @@
 #include <QRegularExpression>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QDateTime>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QTime>
@@ -35,6 +38,7 @@
 #include <QFile>
 
 #include "birdshot/naming.hpp"
+#include "birdshot/solar.hpp"
 #include "birdshot/storage.hpp"
 #include "birdshot/version.hpp"
 #include "theme.hpp"
@@ -161,6 +165,12 @@ MainWindow::MainWindow(bs::Config& cfg, const QString& face) : cfg_(cfg) {
 
   connect(faceCamera_->cmbCamera, QOverload<int>::of(&QComboBox::activated), this,
           &MainWindow::switchCamera);
+  const bool haveFfmpeg =
+      !QStandardPaths::findExecutable(QStringLiteral("ffmpeg")).isEmpty();
+  faceLibrary_->adoptEncodePage(
+      buildEncodePage(),
+      haveFfmpeg ? QString() : QStringLiteral("ffmpeg is not installed on this machine"));
+  refreshEncodeSources();
   populateCameras();
   indexSettings();
   applyCapabilities();
@@ -985,6 +995,36 @@ QWidget* MainWindow::tabMachine() {
     v->addLayout(row);
   }
 
+  // Site (the horizons layer's anchor: sun, plan, align all need it)
+  auto* site = new QWidget;
+  {
+    auto* v = new QVBoxLayout(site);
+    auto* note = new QLabel(QStringLiteral(
+        "Where the instrument stands. The sun position, shoot planning and\nmulti-day "
+        "alignment all reason from these coordinates."));
+    note->setStyleSheet("color:#888;");
+    v->addWidget(note);
+    auto* f = new QFormLayout;
+    f->addRow(QStringLiteral("Latitude (+N)"),
+              spinDouble(QStringLiteral("site_lat"), -90.0, 90.0, 0.001, 5,
+                         QStringLiteral("\u00b0")));
+    f->addRow(QStringLiteral("Longitude (+E)"),
+              spinDouble(QStringLiteral("site_lon"), -180.0, 180.0, 0.001, 5,
+                         QStringLiteral("\u00b0")));
+    f->addRow(QStringLiteral("Elevation"),
+              spinDouble(QStringLiteral("site_elev_m"), -430.0, 9000.0, 1.0, 0,
+                         QStringLiteral(" m")));
+    f->addRow(QStringLiteral("Name"), line(QStringLiteral("site_name")));
+    v->addLayout(f);
+    v->addWidget(check(QStringLiteral("site_set"),
+                       QStringLiteral("Site is set (sun, plan and align use it)"),
+                       [this](bool) { refreshSunLabel(); runDoctor(); }));
+    lblSun_ = new QLabel(QStringLiteral("-"));
+    lblSun_->setStyleSheet("font-family:monospace;font-size:11px;color:#9fd0ff;");
+    lblSun_->setWordWrap(true);
+    v->addWidget(lblSun_);
+  }
+
   // Doctor
   auto* health = new QWidget;
   {
@@ -1011,11 +1051,21 @@ QWidget* MainWindow::tabMachine() {
     v->addLayout(row);
   }
 
-  // Identity (gated: no EXIF writer in the native line yet)
+  // Identity: what `birdshot exif` and assembly stamp into each JPEG.
   auto* identity = new QWidget;
   {
     auto* v = new QVBoxLayout(identity);
+    v->addWidget(check(QStringLiteral("exif_enabled"),
+                       QStringLiteral("Write EXIF when encoding or assembling")));
     auto* f = new QFormLayout;
+    f->addRow(QStringLiteral("Camera make"), line(QStringLiteral("exif_make")));
+    f->addRow(QStringLiteral("Camera model"), line(QStringLiteral("exif_model")));
+    f->addRow(QStringLiteral("Lens"), line(QStringLiteral("exif_lens")));
+    f->addRow(QStringLiteral("Focal length (0 = not recorded)"),
+              spinDouble(QStringLiteral("exif_focal_mm"), 0.0, 2000.0, 1.0, 1,
+                         QStringLiteral(" mm")));
+    f->addRow(QStringLiteral("F-number (0 = not recorded)"),
+              spinDouble(QStringLiteral("exif_fnumber"), 0.0, 64.0, 0.1, 1));
     f->addRow(QStringLiteral("Artist"), line(QStringLiteral("exif_artist")));
     f->addRow(QStringLiteral("Copyright"), line(QStringLiteral("exif_copyright")));
     v->addLayout(f);
@@ -1024,9 +1074,174 @@ QWidget* MainWindow::tabMachine() {
   return wrapTab({
       section(QStringLiteral("Cascade - tiers, RAM buffer, flush"), cascade, false, 2),
       section(QStringLiteral("Paths, offload and unattended start"), paths, false, 2),
+      section(QStringLiteral("Site - horizons"), site, false, 2),
       section(QStringLiteral("Install health - doctor"), health, false, 2),
       section(QStringLiteral("Identity - EXIF"), identity, false, 2),
   });
+}
+
+QWidget* MainWindow::buildEncodePage() {
+  auto* page = new QWidget;
+  auto* v = new QVBoxLayout(page);
+  v->addWidget(new QLabel(QStringLiteral("Encode a folder of photos into a video.")));
+
+  auto* src = new QGroupBox(QStringLiteral("Source"));
+  auto* sf = new QFormLayout(src);
+  cmbSource_ = new QComboBox;
+  sf->addRow(QStringLiteral("Folder"), cmbSource_);
+  auto* srow = new QHBoxLayout;
+  auto* btnBrowse = new QPushButton(QStringLiteral("Browse..."));
+  connect(btnBrowse, &QPushButton::clicked, this, [this] {
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Choose a folder of photos"),
+        QString::fromStdString(bs::expand_user(cfg_.str("data_root", "~/birdshot-data"))));
+    if (dir.isEmpty()) return;
+    cmbSource_->addItem(dir, dir);
+    cmbSource_->setCurrentIndex(cmbSource_->count() - 1);
+  });
+  srow->addWidget(btnBrowse);
+  auto* btnRefresh = new QPushButton(QStringLiteral("Refresh"));
+  connect(btnRefresh, &QPushButton::clicked, this, &MainWindow::refreshEncodeSources);
+  srow->addWidget(btnRefresh);
+  srow->addStretch(1);
+  sf->addRow(srow);
+  auto* chkExif = check(QStringLiteral("exif_enabled"),
+                        QStringLiteral("Write EXIF into the source frames first"));
+  chkExif->setToolTip(QStringLiteral(
+      "Stamps date/time to the centisecond, exposure, ISO from gain, and\nbirdshot's own "
+      "metrics into each JPEG. Modifies the source files in\nplace, losslessly - the JPEG is "
+      "not re-encoded."));
+  sf->addRow(chkExif);
+  chkEncodeOk_ = check(QStringLiteral("encode_only_ok"),
+                       QStringLiteral("Only frames that passed the quality gates"));
+  sf->addRow(chkEncodeOk_);
+  v->addWidget(src);
+
+  auto* outBox = new QGroupBox(QStringLiteral("Output"));
+  auto* of = new QFormLayout(outBox);
+  of->addRow(QStringLiteral("Frame rate"),
+             spinInt(QStringLiteral("encode_fps"), 1, 240, 1, QStringLiteral(" fps")));
+  auto* width = static_cast<QSpinBox*>(
+      spinInt(QStringLiteral("encode_width"), 0, 4096, 1, QStringLiteral(" px wide")));
+  width->setSpecialValueText(QStringLiteral("native"));
+  of->addRow(QStringLiteral("Scale"), width);
+  of->addRow(QStringLiteral("Quality (CRF, lower = better)"),
+             spinInt(QStringLiteral("encode_crf"), 0, 51, 1));
+  of->addRow(QStringLiteral("Encoder preset"),
+             comboStr(QStringLiteral("encode_preset"),
+                      {QStringLiteral("ultrafast"), QStringLiteral("superfast"),
+                       QStringLiteral("veryfast"), QStringLiteral("faster"),
+                       QStringLiteral("fast"), QStringLiteral("medium"),
+                       QStringLiteral("slow")}));
+  v->addWidget(outBox);
+
+  auto* brow = new QHBoxLayout;
+  btnEncode_ = new QPushButton(QStringLiteral("Encode"));
+  btnEncode_->setMinimumHeight(44);
+  btnEncode_->setStyleSheet("font-weight:600;");
+  connect(btnEncode_, &QPushButton::clicked, this, &MainWindow::startEncode);
+  brow->addWidget(btnEncode_);
+  btnEncodeCancel_ = new QPushButton(QStringLiteral("Cancel"));
+  btnEncodeCancel_->setEnabled(false);
+  connect(btnEncodeCancel_, &QPushButton::clicked, this, [this] {
+    if (encodeProc_) encodeProc_->kill();
+  });
+  brow->addWidget(btnEncodeCancel_);
+  v->addLayout(brow);
+
+  progEncode_ = new QProgressBar;
+  progEncode_->hide();
+  v->addWidget(progEncode_);
+  lblEncodeStatus_ = new QLabel(QStringLiteral("-"));
+  lblEncodeStatus_->setWordWrap(true);
+  lblEncodeStatus_->setStyleSheet("font-family:monospace;font-size:11px;");
+  v->addWidget(lblEncodeStatus_);
+  return page;
+}
+
+void MainWindow::refreshEncodeSources() {
+  if (!cmbSource_) return;
+  const QSignalBlocker block(cmbSource_);
+  cmbSource_->clear();
+  const std::string root = bs::expand_user(cfg_.str("data_root", "~/birdshot-data"));
+  int select = -1;
+  for (const auto& dir : bs::list_sessions(root)) {
+    bs::Session sess = bs::Session::open(dir);
+    cmbSource_->addItem(QStringLiteral("%1  (%2 frames)")
+                            .arg(QString::fromStdString(sess.name()))
+                            .arg(sess.read_index().size()),
+                        QString::fromStdString(dir));
+    if (QString::fromStdString(dir) == faceLibrary_->sessionPath())
+      select = cmbSource_->count() - 1;
+  }
+  if (select >= 0) cmbSource_->setCurrentIndex(select);
+}
+
+// The GUI shells out to its own CLI: `birdshot assemble` owns the frame
+// selection, the EXIF pass and the ffmpeg invocation, so there is exactly
+// one encode path to trust.
+void MainWindow::startEncode() {
+  if (encodeProc_) {
+    QMessageBox::information(this, QStringLiteral("Encode"),
+                             QStringLiteral("An encode is already running."));
+    return;
+  }
+  const QString dir = cmbSource_->currentData().toString();
+  if (dir.isEmpty()) {
+    QMessageBox::information(this, QStringLiteral("Encode"),
+                             QStringLiteral("Choose a source folder first."));
+    return;
+  }
+  QStringList args{QStringLiteral("assemble"), dir, QStringLiteral("--config"),
+                   QString::fromStdString(cfg_.path())};
+  if (!chkEncodeOk_->isChecked()) args << QStringLiteral("--all");
+
+  encodeProc_ = new QProcess(this);
+  encodeProc_->setProcessChannelMode(QProcess::MergedChannels);
+  connect(encodeProc_, &QProcess::readyReadStandardOutput, this, [this] {
+    const QString text = QString::fromUtf8(encodeProc_->readAllStandardOutput()).trimmed();
+    if (!text.isEmpty()) lblEncodeStatus_->setText(text.section(QChar('\n'), -1));
+  });
+  connect(encodeProc_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+          [this](int code, QProcess::ExitStatus) {
+            progEncode_->hide();
+            btnEncode_->setEnabled(true);
+            btnEncodeCancel_->setEnabled(false);
+            encodeProc_->deleteLater();
+            encodeProc_ = nullptr;
+            log(code == 0 ? QStringLiteral("encode finished")
+                          : QStringLiteral("encode failed (%1)").arg(code));
+          });
+  btnEncode_->setEnabled(false);
+  btnEncodeCancel_->setEnabled(true);
+  progEncode_->setRange(0, 0);  // busy; ffmpeg owns the real progress
+  progEncode_->show();
+  lblEncodeStatus_->setText(QStringLiteral("encoding..."));
+  log(QStringLiteral("encoding %1").arg(QFileInfo(dir).fileName()));
+  encodeProc_->start(QCoreApplication::applicationDirPath() + QStringLiteral("/birdshot"),
+                     args);
+}
+
+void MainWindow::refreshSunLabel() {
+  if (!lblSun_) return;
+  if (!cfg_.boolean("site_set", false)) {
+    lblSun_->setText(QStringLiteral("site not set -- doctor flags it, and sun/plan/align "
+                                    "refuse to guess"));
+    return;
+  }
+  const bs::Site site = cfg_.site();
+  const double now = QDateTime::currentSecsSinceEpoch();
+  const bs::SunPos sun = bs::sun_position(now, site.lat_deg, site.lon_deg);
+  QString text = QStringLiteral("sun now: elevation %1\u00b0  azimuth %2\u00b0")
+                     .arg(sun.elevation_deg, 0, 'f', 1)
+                     .arg(sun.azimuth_deg, 0, 'f', 1);
+  if (auto set = bs::sun_crossing(now, site.lat_deg, site.lon_deg, bs::kAltSunset, false)) {
+    const QDateTime when = QDateTime::fromSecsSinceEpoch(static_cast<qint64>(*set));
+    text += QStringLiteral("\nsunset %1").arg(when.toString(QStringLiteral("HH:mm")));
+    if (auto az = bs::sunset_azimuth_deg(now, site.lat_deg, site.lon_deg))
+      text += QStringLiteral(" at azimuth %1\u00b0").arg(*az, 0, 'f', 1);
+  }
+  lblSun_->setText(text);
 }
 
 // ------------------------------------------------------------- behavior --
@@ -1124,8 +1339,6 @@ void MainWindow::applyCapabilities() {
        QStringLiteral("the cascade is not in the native line yet"));
   gate(QStringLiteral("Exposure and tone"), QStringLiteral("exposure"),
        QStringLiteral("%1 owns its own exposure - these have no effect here").arg(cam));
-  gate(QStringLiteral("Identity - EXIF"), QStringLiteral("exif"),
-       QStringLiteral("EXIF injection is not in the native line yet"));
 
   // Park the tuner on an available mode.
   const int idx = static_cast<int>(cfg_.num("shoot_mode", 0));
@@ -1257,6 +1470,7 @@ void MainWindow::onFrame(const FramePacket& p) {
     hud.interval = interval;
     hud.countdown = interval;  // reset by each frame; painted decreasing on the tick
   }
+  lastHud_ = hud;
   preview_->setHud(hud);
 
   if (fullscreenPreview_) {
@@ -1362,18 +1576,16 @@ void MainWindow::refreshStatusTick() {
           : QStringLiteral("no session"),
       QStringLiteral("free %1 GB").arg(freeMb / 1024.0, 0, 'f', 1));
 
-  // Timelapse countdown, painted from the wall clock between frames.
-  if (capture_->recording() && capture_->mode() == bs::Mode::Timelapse && lastFrameAt_ > 0) {
-    const double interval = cfg_.num("timelapse_interval_s", 5.0);
-    HudInfo hud;  // refresh only the countdown fields via a fresh set
-    hud = HudInfo();
-    hud.valid = true;
-    hud.interval = interval;
-    hud.countdown = std::max(0.0, interval - (mono_now() - lastFrameAt_));
-    // keep the last text lines
-    // (setHud replaces everything; simplest is to rebuild from last_)
+  // Timelapse countdown: the ring runs down on the wall clock between
+  // frames, over the last frame's HUD lines.
+  if (capture_->recording() && capture_->mode() == bs::Mode::Timelapse && lastFrameAt_ > 0 &&
+      lastHud_.valid) {
+    lastHud_.interval = cfg_.num("timelapse_interval_s", 5.0);
+    lastHud_.countdown = std::max(0.0, lastHud_.interval - (mono_now() - lastFrameAt_));
+    preview_->setHud(lastHud_);
     preview_->update();
   }
+  refreshSunLabel();
 
   // The blocking overlay: capture has a floor, and when the disk is under
   // it the engine will refuse to run. Impossible to miss, by design.
@@ -1634,6 +1846,18 @@ void MainWindow::switchCamera(int idx) {
     return;
   }
   const bs::CameraInfo cam = cameras_[idx];
+  if (cam.backend == "replay") {
+    // Re-picking replay re-asks, which is how you change folders.
+    const QString start = QString::fromStdString(bs::expand_user(
+        cfg_.str("replay_path", cfg_.str("data_root", "~/birdshot-data"))));
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Folder of stills to replay"), start);
+    if (dir.isEmpty()) {
+      populateCameras();
+      return;
+    }
+    cfg_.set("replay_path", bs::Json(dir.toStdString()));
+  }
   cfg_.set("backend", bs::Json(cam.backend));
   cfg_.set("camera_index", bs::Json(cam.index));
   saveCfg();

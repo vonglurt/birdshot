@@ -115,8 +115,9 @@ EngineReport Engine::run(const EngineOptions& opts) {
     ++seq;
 
     const bool rapid = opts.mode == Mode::Rapid;
+    const Gray8& hires = frame.full.empty() ? frame.y : frame.full;
     FrameStats st = rapid ? meter_only(frame.y, cfg_)
-                          : analyse(frame.y, cfg_, frame.y.centre_crop(512));
+                          : analyse(frame.y, cfg_, hires.centre_crop(512));
     if (tap_) tap_(frame, st);
 
     // Bird Flight judges before anything is saved; only a take writes.
@@ -167,7 +168,8 @@ EngineReport Engine::run(const EngineOptions& opts) {
       const std::string part =
           session.claim_frame(frame.ts, frame.exposure_us, ".jpg", rapid);
       if (!part.empty()) {
-        const std::vector<uint8_t> encoded = encode_jpeg(frame.y, jpeg_quality);
+        const std::vector<uint8_t> encoded =
+            encode_jpeg(frame.full.empty() ? frame.y : frame.full, jpeg_quality);
         std::FILE* f = std::fopen(part.c_str(), "wb");
         bool ok = f != nullptr;
         if (f) {
@@ -178,7 +180,8 @@ EngineReport Engine::run(const EngineOptions& opts) {
           ++rep.saved;
           if (save_pgm) {
             const std::string jpg = part.substr(0, part.size() - 5);
-            write_pgm(frame.y, jpg.substr(0, jpg.size() - 4) + ".pgm");
+            write_pgm(frame.full.empty() ? frame.y : frame.full,
+                      jpg.substr(0, jpg.size() - 4) + ".pgm");
           }
         }
       }

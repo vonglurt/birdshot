@@ -213,6 +213,7 @@ class AvfBackend : public Backend {
       }
     }
     frame.y = std::move(out);
+    frame.full = std::move(native);  // saved frames keep the camera's delivered size
     return frame;
   }
 

@@ -86,3 +86,23 @@ bool read_pgm(const std::string& path, Gray8* out) {
 }
 
 }  // namespace bs
+
+namespace bs {
+Gray8 letterbox(const Gray8& src, int w, int h) {
+  Gray8 out(w, h, 0);
+  if (src.empty() || w <= 0 || h <= 0) return out;
+  const double scale =
+      std::min(static_cast<double>(w) / src.w, static_cast<double>(h) / src.h);
+  const int dw = std::max(1, static_cast<int>(src.w * scale));
+  const int dh = std::max(1, static_cast<int>(src.h * scale));
+  const int ox = (w - dw) / 2, oy = (h - dh) / 2;
+  for (int y = 0; y < dh; ++y) {
+    const int sy = std::min(src.h - 1, static_cast<int>(y / scale));
+    for (int x = 0; x < dw; ++x) {
+      const int sx = std::min(src.w - 1, static_cast<int>(x / scale));
+      out.at(ox + x, oy + y) = src.at(sx, sy);
+    }
+  }
+  return out;
+}
+}  // namespace bs

@@ -21,4 +21,12 @@ std::vector<uint8_t> encode_jpeg(const Gray8& img, int quality);
 // Encode straight to a file; false on I/O failure.
 bool write_jpeg(const Gray8& img, const std::string& path, int quality);
 
+// Baseline sequential decoder, in-tree like the encoder: Huffman, DQT,
+// restart markers, 1- and 3-component scans with any common subsampling.
+// Only the luma plane is reconstructed -- chroma coefficients are entropy-
+// decoded (the stream demands it) and discarded, because everything this
+// program does runs on Y. Progressive JPEGs are refused.
+bool decode_jpeg(const std::vector<uint8_t>& data, Gray8* out);
+bool read_jpeg(const std::string& path, Gray8* out);
+
 }  // namespace bs

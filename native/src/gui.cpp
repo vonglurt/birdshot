@@ -114,7 +114,8 @@ void PreviewPump::loop() {
     Frame frame = backend_.capture(exposure_us, gain);
     ++seq;
 
-    const FrameStats st = analyse(frame.y, cfg_, frame.y.centre_crop(512));
+    const Gray8& hires = frame.full.empty() ? frame.y : frame.full;
+    const FrameStats st = analyse(frame.y, cfg_, hires.centre_crop(512));
     ExposureDecision dec;
     if (auto_exposure) {
       dec = ae.update(st, frame.exposure_us, frame.gain, frame.lux, seq * 0.25);
