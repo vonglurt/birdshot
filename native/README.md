@@ -12,6 +12,9 @@ CI matrix holding Linux, Windows and FreeBSD to the same bar.
 
 ---
 
+**Design philosophy, the layer diagram and the GUI analysis live in
+[ARCHITECTURE.md](ARCHITECTURE.md).**
+
 ## Why a rewrite
 
 Three reasons, in the order they mattered:
