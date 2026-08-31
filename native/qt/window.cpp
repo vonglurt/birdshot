@@ -219,14 +219,22 @@ void MainWindow::setFace(const QString& nameIn) {
   // The Camera face is a plain camera app: overlays off on entry, restored
   // on the way out.
   if (name == QStringLiteral("camera") && currentFace_ != QStringLiteral("camera")) {
-    stash_ = {true,          preview_->showHud,     preview_->showZones, preview_->showZebra,
-              preview_->showPeaking, preview_->showFocusMap, preview_->showSharpness};
-    preview_->showHud = preview_->showZones = preview_->showZebra = false;
+    stash_ = {true,
+              preview_->showHud,
+              preview_->showZones,
+              preview_->showGrid,
+              preview_->showZebra,
+              preview_->showPeaking,
+              preview_->showFocusMap,
+              preview_->showSharpness};
+    preview_->showHud = preview_->showZones = preview_->showGrid = false;
+    preview_->showZebra = false;
     preview_->showPeaking = preview_->showFocusMap = preview_->showSharpness = false;
   } else if (name != QStringLiteral("camera") && currentFace_ == QStringLiteral("camera") &&
              stash_.valid) {
     preview_->showHud = stash_.hud;
     preview_->showZones = stash_.zones;
+    preview_->showGrid = stash_.grid;
     preview_->showZebra = stash_.zebra;
     preview_->showPeaking = stash_.peaking;
     preview_->showFocusMap = stash_.fmap;
@@ -473,10 +481,13 @@ QWidget* MainWindow::buildViewRow() {
       "Contrast-stretches the preview and burns in its edges, so the\nsubject stays findable on "
       "a screen washed out by sunlight."));
   h->addWidget(chkOutdoor_);
-  cmbOutdoor_ = new QComboBox;
-  cmbOutdoor_->addItems({QStringLiteral("boost"), QStringLiteral("edges only")});
-  connect(cmbOutdoor_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          &MainWindow::outdoorStyleChanged);
+  cmbOutdoor_ = comboStr(QStringLiteral("outdoor_style"),
+                         {QStringLiteral("boost"), QStringLiteral("edges")},
+                         [this](const QString& style) {
+                           preview_->outdoorStyle = style;
+                           faceField_->setOutdoor(chkOutdoor_->isChecked(),
+                                                  cmbOutdoor_->currentIndex());
+                         });
   h->addWidget(cmbOutdoor_);
   h->addWidget(new QLabel(QStringLiteral("stripe")));
   h->addWidget(spinInt(QStringLiteral("outdoor_stripe_px"), 1, 12, 1, QStringLiteral(" px"),
@@ -498,6 +509,13 @@ void MainWindow::registerBind(const QString& key, QWidget* w, std::function<void
   binds_ << b;
 }
 
+// A key may be bound in two places (exif_enabled lives on the Machine tab
+// and the encode panel); keep every sibling in step when one of them writes.
+void MainWindow::refreshBinds(const QString& key, QWidget* except) {
+  for (const Bind& b : binds_)
+    if (b.key == key && b.widget != except && b.refresh) b.refresh();
+}
+
 void MainWindow::saveCfg() { cfg_.save(); }
 
 QWidget* MainWindow::spinInt(const QString& key, int lo, int hi, int step,
@@ -507,9 +525,10 @@ QWidget* MainWindow::spinInt(const QString& key, int lo, int hi, int step,
   s->setSingleStep(step);
   if (!suffix.isEmpty()) s->setSuffix(suffix);
   s->setValue(static_cast<int>(cfg_.num(key.toStdString())));
-  connect(s, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, key, onChange](int v) {
+  connect(s, QOverload<int>::of(&QSpinBox::valueChanged), this, [this, key, s, onChange](int v) {
     cfg_.set(key.toStdString(), bs::Json(v));
     saveCfg();
+    refreshBinds(key, s);
     if (onChange) onChange(v);
   });
   registerBind(key, s, [this, s, key] {
@@ -529,9 +548,10 @@ QWidget* MainWindow::spinDouble(const QString& key, double lo, double hi, double
   if (!suffix.isEmpty()) s->setSuffix(suffix);
   s->setValue(cfg_.num(key.toStdString()));
   connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-          [this, key, onChange](double v) {
+          [this, key, s, onChange](double v) {
             cfg_.set(key.toStdString(), bs::Json(v));
             saveCfg();
+            refreshBinds(key, s);
             if (onChange) onChange(v);
           });
   registerBind(key, s, [this, s, key] {
@@ -545,9 +565,10 @@ QCheckBox* MainWindow::check(const QString& key, const QString& text,
                              std::function<void(bool)> onChange) {
   auto* c = new QCheckBox(text);
   c->setChecked(cfg_.boolean(key.toStdString()));
-  connect(c, &QCheckBox::toggled, this, [this, key, onChange](bool on) {
+  connect(c, &QCheckBox::toggled, this, [this, key, c, onChange](bool on) {
     cfg_.set(key.toStdString(), bs::Json(on));
     saveCfg();
+    refreshBinds(key, c);
     if (onChange) onChange(on);
   });
   registerBind(key, c, [this, c, key] {
@@ -565,10 +586,11 @@ QComboBox* MainWindow::comboStr(const QString& key, const QStringList& options,
   const int idx = options.indexOf(cur);
   c->setCurrentIndex(idx >= 0 ? idx : 0);
   connect(c, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this, key, options, onChange](int i) {
+          [this, key, c, options, onChange](int i) {
             if (i < 0 || i >= options.size()) return;
             cfg_.set(key.toStdString(), bs::Json(options[i].toStdString()));
             saveCfg();
+            refreshBinds(key, c);
             if (onChange) onChange(options[i]);
           });
   registerBind(key, c, [this, c, key, options] {
@@ -584,6 +606,7 @@ QLineEdit* MainWindow::line(const QString& key) {
   connect(e, &QLineEdit::editingFinished, this, [this, key, e] {
     cfg_.set(key.toStdString(), bs::Json(e->text().toStdString()));
     saveCfg();
+    refreshBinds(key, e);
   });
   registerBind(key, e, [this, e, key] {
     const QSignalBlocker block(e);
@@ -635,20 +658,13 @@ QWidget* MainWindow::tabShoot() {
               spinInt(QStringLiteral("burst_count"), 0, 100000, 10));
     f->addRow(QStringLiteral("JPEG quality"), spinInt(QStringLiteral("jpeg_quality"), 50, 100, 1));
     v->addLayout(f);
-    auto* box = new QGroupBox(QStringLiteral("Orientation and framing"));
-    auto* bv = new QVBoxLayout(box);
-    auto* zones = new QCheckBox(QStringLiteral("Metering zones"));
-    zones->setChecked(true);
-    connect(zones, &QCheckBox::toggled, this, [this](bool on) { preview_->showZones = on; });
-    bv->addWidget(zones);
-    auto* grid = new QCheckBox(QStringLiteral("Thirds grid"));
-    connect(grid, &QCheckBox::toggled, this, [this](bool on) { preview_->showGrid = on; });
-    bv->addWidget(grid);
-    bv->addWidget(new QLabel(QStringLiteral("Focus aids live in Scene > Focus aids.")));
-    v->addWidget(box);
     auto* pgm = check(QStringLiteral("save_pgm"),
                       QStringLiteral("Also save the loss-free luma plane (PGM)"));
     v->addWidget(pgm);
+    auto* aids = new QLabel(
+        QStringLiteral("Overlays and focus aids live in Scene > Focus aids and overlays."));
+    aids->setStyleSheet("color:#888;");
+    v->addWidget(aids);
   }
 
   // Rapid
@@ -722,28 +738,35 @@ QWidget* MainWindow::tabShoot() {
     v->addLayout(f1);
 
     v->addWidget(new QLabel(QStringLiteral("<b>Auto-take gates</b>")));
+    auto* order = new QLabel(QStringLiteral(
+        "Listed in the order the gates judge -- the same ladder the Field\nface shows live."));
+    order->setStyleSheet("color:#888;");
+    v->addWidget(order);
+    v->addWidget(check(QStringLiteral("bf_require_motion"),
+                       QStringLiteral("Require motion between frames")));
     auto* f2 = new QFormLayout;
-    f2->addRow(QStringLiteral("Min boundary sharpness"),
-               spinDouble(QStringLiteral("bf_min_sharpness"), 0.0, 100.0, 1.0, 1));
+    f2->addRow(QStringLiteral("Motion threshold"),
+               spinDouble(QStringLiteral("bf_motion_min"), 0.0, 0.05, 0.0005, 4,
+                          QStringLiteral(" of frame")));
+    f2->addRow(QStringLiteral("Sky brighter than"),
+               spinInt(QStringLiteral("bf_sky_luma_min"), 40, 250, 1));
+    f2->addRow(QStringLiteral("Min sky in frame"),
+               spinDouble(QStringLiteral("bf_sky_min_frac"), 0.0, 1.0, 0.05, 2));
+    f2->addRow(QStringLiteral("Subject darker than"),
+               spinInt(QStringLiteral("bf_subject_luma_max"), 10, 200, 1));
     f2->addRow(QStringLiteral("Subject size min"),
                spinDouble(QStringLiteral("bf_min_area_frac"), 0.0, 0.2, 0.0002, 4,
                           QStringLiteral(" of frame")));
     f2->addRow(QStringLiteral("Subject size max"),
                spinDouble(QStringLiteral("bf_max_area_frac"), 0.001, 0.5, 0.005, 3,
                           QStringLiteral(" of frame")));
-    f2->addRow(QStringLiteral("Subject darker than"),
-               spinInt(QStringLiteral("bf_subject_luma_max"), 10, 200, 1));
-    f2->addRow(QStringLiteral("Sky brighter than"),
-               spinInt(QStringLiteral("bf_sky_luma_min"), 40, 250, 1));
-    f2->addRow(QStringLiteral("Min sky in frame"),
-               spinDouble(QStringLiteral("bf_sky_min_frac"), 0.0, 1.0, 0.05, 2));
     f2->addRow(QStringLiteral("Sky around subject"),
                spinDouble(QStringLiteral("bf_ring_sky_frac"), 0.0, 1.0, 0.05, 2));
     f2->addRow(QStringLiteral("Edge margin"),
                spinDouble(QStringLiteral("bf_margin_frac"), 0.0, 0.4, 0.01, 2));
+    f2->addRow(QStringLiteral("Min boundary sharpness"),
+               spinDouble(QStringLiteral("bf_min_sharpness"), 0.0, 100.0, 1.0, 1));
     v->addLayout(f2);
-    v->addWidget(check(QStringLiteral("bf_require_motion"),
-                       QStringLiteral("Require motion between frames")));
     auto* foot = new QLabel(QStringLiteral(
         "Frames land in a session with the full quality pipeline; the\nsighting that fired the "
         "burst is logged. Changed gates apply from\nthe next watch (restart the mode)."));
@@ -796,11 +819,20 @@ QWidget* MainWindow::tabScene() {
                spinDouble(QStringLiteral("target_luma"), 20, 240, 2, 1));
     tf->addRow(QStringLiteral("Highlight tolerance"),
                spinDouble(QStringLiteral("max_clip_frac"), 0.0, 0.5, 0.005, 3));
+    tf->addRow(QStringLiteral("Sky clip budget"),
+               spinDouble(QStringLiteral("sky_clip_tolerance"), 0.0, 1.0, 0.05, 2));
     tf->addRow(QStringLiteral("Sky zone (top fraction)"),
                spinDouble(QStringLiteral("sky_zone_frac"), 0.0, 0.9, 0.05, 2,
                           {}, [this](double v) { preview_->skyZoneFrac = v; }));
+    tf->addRow(QStringLiteral("Subject metering weight"),
+               spinDouble(QStringLiteral("subject_weight"), 0.0, 2.0, 0.05, 2));
     tf->addRow(QStringLiteral("Sky metering weight"),
                spinDouble(QStringLiteral("sky_weight"), 0.0, 2.0, 0.05, 2));
+    auto* tNote = new QLabel(QStringLiteral(
+        "Highlight tolerance is the subject zone's clip budget; the sky has\nits own, far looser "
+        "budget and only ever trims exposure down."));
+    tNote->setStyleSheet("color:#888;");
+    tf->addRow(tNote);
     v->addWidget(targets);
 
     auto* ladder = new QGroupBox(QStringLiteral("Shutter/gain ladder (shortest shutter first)"));
@@ -814,9 +846,13 @@ QWidget* MainWindow::tabScene() {
     lf->addRow(QStringLiteral("Hard max shutter"),
                spinInt(QStringLiteral("shutter_hard_max_us"), 1000, 20000000, 1000,
                        QStringLiteral(" us")));
+    lf->addRow(check(QStringLiteral("prefer_exposure_time"),
+                     QStringLiteral("Spend shutter before gain (lowest noise)")));
     auto* note = new QLabel(QStringLiteral(
-        "Gain rises to the preferred cap before the shutter is allowed\npast the motion limit, "
-        "so wingbeats stay frozen."));
+        "Checked, the shutter lengthens all the way to its hard cap before\ngain moves at all -- "
+        "gain buys brightness at the cost of noise it can\nnever give back. Unchecked, the "
+        "shutter pins at the motion limit and\ngain rises to its preferred cap first, so "
+        "wingbeats stay frozen."));
     note->setStyleSheet("color:#888;");
     lf->addRow(note);
     v->addWidget(ladder);
@@ -830,8 +866,22 @@ QWidget* MainWindow::tabScene() {
                spinDouble(QStringLiteral("pid_deadband_ev"), 0.0, 1.0, 0.02, 2));
     pf->addRow(QStringLiteral("Max step (EV)"),
                spinDouble(QStringLiteral("pid_slew_ev"), 0.1, 5.0, 0.1, 1));
-    pf->addRow(QStringLiteral("Meter smoothing"),
-               spinDouble(QStringLiteral("meter_ema"), 0.05, 1.0, 0.05, 2));
+    pf->addRow(QStringLiteral("Integral clamp (EV)"),
+               spinDouble(QStringLiteral("pid_integral_clamp_ev"), 0.5, 5.0, 0.25, 2));
+    pf->addRow(QStringLiteral("Damping (step fraction)"),
+               spinDouble(QStringLiteral("ae_damping"), 0.05, 1.0, 0.05, 2));
+    pf->addRow(QStringLiteral("Meter average"),
+               spinInt(QStringLiteral("ae_average_n"), 1, 15, 1, QStringLiteral(" frames")));
+    pf->addRow(QStringLiteral("Meter average mode"),
+               comboStr(QStringLiteral("ae_average_mode"),
+                        {QStringLiteral("median"), QStringLiteral("mean"),
+                         QStringLiteral("none")}));
+    auto* pNote = new QLabel(QStringLiteral(
+        "Damping applies only part of each correction -- with a two-frame\ncontrol latency the "
+        "full step overshoots. The average window is\ndiscarded on a big scene change, so steps "
+        "stay instant."));
+    pNote->setStyleSheet("color:#888;");
+    pf->addRow(pNote);
     v->addWidget(pid);
 
     auto* row = new QHBoxLayout;
@@ -881,6 +931,25 @@ QWidget* MainWindow::tabScene() {
     connect(chkZebra2_, &QCheckBox::toggled, this,
             [this](bool on) { preview_->showZebra = on; });
     bv->addWidget(chkZebra2_);
+    chkZones_ = new QCheckBox(
+        QStringLiteral("Metering zones  -  the sky/subject split line"));
+    chkZones_->setChecked(true);
+    connect(chkZones_, &QCheckBox::toggled, this,
+            [this](bool on) { preview_->showZones = on; });
+    bv->addWidget(chkZones_);
+    chkGrid_ = new QCheckBox(QStringLiteral("Thirds grid"));
+    connect(chkGrid_, &QCheckBox::toggled, this,
+            [this](bool on) { preview_->showGrid = on; });
+    bv->addWidget(chkGrid_);
+    chkHud_ = new QCheckBox(QStringLiteral("HUD  -  exposure readout in the corner"));
+    chkHud_->setChecked(true);
+    connect(chkHud_, &QCheckBox::toggled, this,
+            [this](bool on) { preview_->showHud = on; });
+    bv->addWidget(chkHud_);
+    auto* wheelHint = new QLabel(
+        QStringLiteral("    Mouse wheel over the preview toggles every overlay at once."));
+    wheelHint->setStyleSheet("color:#777;font-size:11px;");
+    bv->addWidget(wheelHint);
     auto* rrow = new QHBoxLayout;
     auto* btnPeak = new QPushButton(QStringLiteral("Reset peak-hold"));
     connect(btnPeak, &QPushButton::clicked, this, [this] { preview_->resetFocusPeak(); });
@@ -986,7 +1055,7 @@ QWidget* MainWindow::tabScene() {
 
   return wrapTab({
       section(QStringLiteral("Exposure and tone"), expo, true, 1),
-      section(QStringLiteral("Focus aids"), focus, false, 1),
+      section(QStringLiteral("Focus aids and overlays"), focus, false, 1),
       section(QStringLiteral("Quality gates"), quality, false, 1),
   });
 }
@@ -1012,7 +1081,18 @@ QWidget* MainWindow::tabMachine() {
     f->addRow(QStringLiteral("Stop below"),
               spinInt(QStringLiteral("min_free_mb"), 100, 100000, 100,
                       QStringLiteral(" MB free")));
+    f->addRow(QStringLiteral("Boot face"),
+              comboStr(QStringLiteral("ui_face"),
+                       {QStringLiteral("auto"), QStringLiteral("camera"),
+                        QStringLiteral("field"), QStringLiteral("bench"),
+                        QStringLiteral("library")}));
     v->addLayout(f);
+    auto* bootNote = new QLabel(QStringLiteral(
+        "auto: a developer tree boots the Bench, a Mac the Library, anything\nelse the Camera. "
+        "Launch with --start to press START unattended; the\nUSB offload of 1.x migrates with "
+        "the Pi backend it serves."));
+    bootNote->setStyleSheet("color:#888;");
+    v->addWidget(bootNote);
     auto* row = new QHBoxLayout;
     auto* btnOpen = new QPushButton(QStringLiteral("Open capture folder"));
     connect(btnOpen, &QPushButton::clicked, this, [this] {
@@ -1033,13 +1113,25 @@ QWidget* MainWindow::tabMachine() {
         "alignment all reason from these coordinates."));
     note->setStyleSheet("color:#888;");
     v->addWidget(note);
+    // Typing real coordinates IS setting the site: arm site_set on the
+    // first edit so the sun readout, plan and doctor stop disagreeing with
+    // visibly-correct numbers. The checkbox stays the master for off.
+    auto siteEdited = [this](double) {
+      if (!cfg_.boolean("site_set", false)) {
+        cfg_.set("site_set", bs::Json(true));
+        saveCfg();
+        refreshBinds(QStringLiteral("site_set"));
+        runDoctor();
+      }
+      refreshSunLabel();
+    };
     auto* f = new QFormLayout;
     f->addRow(QStringLiteral("Latitude (+N)"),
               spinDouble(QStringLiteral("site_lat"), -90.0, 90.0, 0.001, 5,
-                         QStringLiteral("\u00b0")));
+                         QStringLiteral("\u00b0"), siteEdited));
     f->addRow(QStringLiteral("Longitude (+E)"),
               spinDouble(QStringLiteral("site_lon"), -180.0, 180.0, 0.001, 5,
-                         QStringLiteral("\u00b0")));
+                         QStringLiteral("\u00b0"), siteEdited));
     f->addRow(QStringLiteral("Elevation"),
               spinDouble(QStringLiteral("site_elev_m"), -430.0, 9000.0, 1.0, 0,
                          QStringLiteral(" m")));
@@ -1052,6 +1144,22 @@ QWidget* MainWindow::tabMachine() {
     lblSun_->setStyleSheet("font-family:monospace;font-size:11px;color:#9fd0ff;");
     lblSun_->setWordWrap(true);
     v->addWidget(lblSun_);
+
+    auto* lensBox = new QGroupBox(QStringLiteral("Lens geometry"));
+    auto* lg = new QFormLayout(lensBox);
+    lg->addRow(QStringLiteral("Focal length"),
+               spinDouble(QStringLiteral("lens_focal_mm"), 1.0, 2000.0, 0.5, 1,
+                          QStringLiteral(" mm")));
+    lg->addRow(QStringLiteral("Sensor width"),
+               spinDouble(QStringLiteral("sensor_width_mm"), 1.0, 100.0, 0.1, 3,
+                          QStringLiteral(" mm")));
+    auto* lensNote = new QLabel(QStringLiteral(
+        "The planner's field-of-view check: whether a fixed mount holds the\nseason's sunset "
+        "azimuth swing is pure trigonometry on these two\nnumbers. IMX477 sensor width by "
+        "default."));
+    lensNote->setStyleSheet("color:#888;");
+    lg->addRow(lensNote);
+    v->addWidget(lensBox);
   }
 
   // Doctor
@@ -1102,7 +1210,7 @@ QWidget* MainWindow::tabMachine() {
 
   return wrapTab({
       section(QStringLiteral("Cascade - tiers, RAM buffer, flush"), cascade, false, 2),
-      section(QStringLiteral("Paths, offload and unattended start"), paths, false, 2),
+      section(QStringLiteral("Paths and unattended start"), paths, false, 2),
       section(QStringLiteral("Site - horizons"), site, false, 2),
       section(QStringLiteral("Install health - doctor"), health, false, 2),
       section(QStringLiteral("Identity - EXIF"), identity, false, 2),
@@ -1412,7 +1520,8 @@ void MainWindow::setAllOverlays(bool on) {
     p->showZebra = p->showZones = p->showGrid = p->showPeaking = on;
     p->showFocusMap = p->showSharpness = p->showHud = on;
   }
-  for (QCheckBox* c : {chkFmap_, chkSharpNum_, chkPeak2_, chkZebra2_}) {
+  for (QCheckBox* c : {chkFmap_, chkSharpNum_, chkPeak2_, chkZebra2_, chkZones_, chkGrid_,
+                       chkHud_}) {
     const QSignalBlocker block(c);
     c->setChecked(on);
   }
@@ -1422,15 +1531,10 @@ void MainWindow::setAllOverlays(bool on) {
 
 void MainWindow::outdoorChanged(bool on) {
   preview_->outdoor = on;
+  preview_->outdoorStyle = QString::fromStdString(cfg_.str("outdoor_style", "boost"));
   preview_->stripePx = static_cast<int>(cfg_.num("outdoor_stripe_px", 3));
   preview_->outdoorStrength = cfg_.num("outdoor_strength", 1.0);
   faceField_->setOutdoor(on, cmbOutdoor_->currentIndex());
-}
-
-void MainWindow::outdoorStyleChanged(int idx) {
-  preview_->outdoorStyle =
-      idx == 1 ? QStringLiteral("edges") : QStringLiteral("boost");
-  faceField_->setOutdoor(chkOutdoor_->isChecked(), idx);
 }
 
 void MainWindow::log(const QString& msg) {
@@ -1765,12 +1869,12 @@ void MainWindow::searchPicked(const QString& text) {
 
 void MainWindow::refreshProvenance() {
   const bs::Json defaults = bs::Config::defaults();
-  int changed = 0;
+  QSet<QString> changedKeys;  // a key bound twice still counts once
   for (Bind& b : binds_) {
     const std::string key = b.key.toStdString();
     if (!defaults.contains(key)) continue;
     const bool diff = cfg_.get(key).dump() != defaults.get(key).dump();
-    if (diff) ++changed;
+    if (diff) changedKeys.insert(b.key);
     if (diff == b.wasChanged) continue;
     b.wasChanged = diff;
     if (b.labelWidget) {
@@ -1780,6 +1884,7 @@ void MainWindow::refreshProvenance() {
                : QString());
     }
   }
+  const int changed = changedKeys.size();
   lblChanged_->setText(changed == 0
                            ? QStringLiteral("stock configuration")
                            : QStringLiteral("%1 setting%2 differ%3 from defaults")
@@ -1797,6 +1902,7 @@ void MainWindow::openResetDialog() {
       changedKeys << b.key;
   }
   changedKeys.sort();
+  changedKeys.removeDuplicates();
 
   QDialog dlg(this);
   dlg.setWindowTitle(QStringLiteral("Settings changed from defaults"));

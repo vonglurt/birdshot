@@ -5,7 +5,7 @@
 // bar, and the wiring between the capture controller and everything that
 // paints. A behavioral port of the prototype's main_window.py onto the
 // native core -- same layout, same keys, same gating rules; sections whose
-// core has not been ported yet (video, cascade, EXIF) are greyed with the
+// core has not been ported yet (video, cascade) are greyed with the
 // reason, exactly how the prototype gated what a camera could not do.
 #pragma once
 
@@ -102,6 +102,7 @@ class MainWindow : public QMainWindow {
                       std::function<void(QString)> onChange = {});
   QLineEdit* line(const QString& key);
   void registerBind(const QString& key, QWidget* w, std::function<void()> refresh);
+  void refreshBinds(const QString& key, QWidget* except = nullptr);
   void saveCfg();
 
   // behavior
@@ -112,7 +113,6 @@ class MainWindow : public QMainWindow {
   void toggleFullscreen();
   void setAllOverlays(bool on);
   void outdoorChanged(bool on);
-  void outdoorStyleChanged(int idx);
   void refreshStatusTick();
   void refreshSummaries();
   void refreshProvenance();
@@ -158,7 +158,7 @@ class MainWindow : public QMainWindow {
   QString currentFace_ = QStringLiteral("bench");
   struct OverlayStash {
     bool valid = false;
-    bool hud, zones, zebra, peaking, fmap, sharp;
+    bool hud, zones, grid, zebra, peaking, fmap, sharp;
   } stash_;
 
   // bench widgets
@@ -186,6 +186,7 @@ class MainWindow : public QMainWindow {
   QLabel* lblFocusLive_;
   QLabel* lblSharpRef_;
   QCheckBox *chkFmap_, *chkSharpNum_, *chkPeak2_, *chkZebra2_;
+  QCheckBox *chkZones_, *chkGrid_, *chkHud_;
   QTextEdit* txtDoctor_;
   QLabel* lblDoctorStamp_;
   QPushButton* btnDoctorChip_;

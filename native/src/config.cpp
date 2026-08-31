@@ -37,6 +37,17 @@ Json Config::defaults() {
   // camera backends register themselves where the OS provides one.
   d["backend"] = "synthetic";
   d["camera_index"] = 0;
+  d["replay_path"] = "";  // folder of stills the replay backend loops over
+
+  // ---- interface (the GUI's persisted knobs; same keys as 1.x) --------
+  d["ui_face"] = "auto";         // camera | field | bench | library | auto
+  d["shoot_mode"] = 0;           // index into the mode dial
+  d["outdoor_mode"] = false;     // high-contrast preview for bright sunlight
+  d["outdoor_style"] = "boost";  // boost | edges
+  d["outdoor_stripe_px"] = 3;    // width of each hazard band
+  d["outdoor_strength"] = 1.0;   // higher = more edges marked
+  d["tone_black"] = 0.0;         // histogram level points (display stretch)
+  d["tone_white"] = 1.0;
 
   // ---- site (the Horizons keys: where on Earth the camera stands) ----
   // Everything the ephemeris, the planner and multi-day alignment do reads
@@ -92,15 +103,34 @@ Json Config::defaults() {
   d["dark_p95_max"] = 40.0;
   d["blown_clip_frac"] = 0.35;
   d["blur_threshold"] = 2.0;
+  d["sharpness_reference"] = Json();  // sharpness of a frame the user called focused
   d["content_std_min"] = 8.0;
   d["reject_action"] = "flag";  // flag | delete | quarantine
 
   // ---- timelapse / rapid / burst -------------------------------------
   d["timelapse_interval_s"] = 5.0;
-  d["timelapse_fps"] = 60;
+  d["timelapse_fps"] = 60;  // dead in both lines (assembly reads encode_fps); kept so 1.x configs round-trip
   d["timelapse_count"] = 0;
   d["burst_count"] = 0;
   d["rapid_count"] = 0;
+
+  // ---- identity (what `birdshot exif` and assembly stamp) -------------
+  d["exif_enabled"] = true;
+  d["exif_make"] = "Raspberry Pi";
+  d["exif_model"] = "IMX477 HQ Camera";
+  d["exif_software"] = "birdshot";
+  d["exif_lens"] = "";
+  d["exif_focal_mm"] = 0.0;  // 0 = do not record
+  d["exif_fnumber"] = 0.0;   // 0 = do not record
+  d["exif_artist"] = "";
+  d["exif_copyright"] = "";
+
+  // ---- movie assembly (ffmpeg at arm's length) ------------------------
+  d["encode_fps"] = 60;
+  d["encode_width"] = 1920;  // 0 = native
+  d["encode_crf"] = 18;
+  d["encode_preset"] = "veryfast";
+  d["encode_only_ok"] = true;
 
   // ---- Bird Flight ---------------------------------------------------
   d["bf_burst"] = 5;

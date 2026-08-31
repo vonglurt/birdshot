@@ -45,7 +45,7 @@ Accordion::Accordion(const QString& title, bool expanded, QWidget* parent) : QWi
   summary_ = new QLabel;
   summary_->setStyleSheet("color:#93a3ad;font-size:11px;padding:2px 0 4px 16px;");
   summary_->setWordWrap(true);
-  summary_->setVisible(!expanded && false);
+  summary_->setVisible(false);  // shown by applyOpen once setSummary gives it text
   outer->addWidget(summary_);
 
   body_ = new QFrame;
