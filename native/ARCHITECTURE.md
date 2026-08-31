@@ -4,7 +4,10 @@
 How the 2.0 line is built, why it is built that way, and how the GUI is
 wired. Written when the tree stood at ~13,000 lines: ~5,900 in the core
 library, ~4,400 in the Qt front end, a 920-line selftest holding 34 checks
-over all of it.
+over all of it. The algorithms themselves — the AE controller, the gates,
+the Bird Flight ladder, the solar math — are explained constant by
+constant in [PHYSICS.md](PHYSICS.md); the ledger against the 1.x
+prototype is [PARITY.md](PARITY.md).
 
 ---
 
@@ -166,7 +169,7 @@ listing honest capability strings; the GUI's gating does the rest.
 
 ## Part III — GUI architecture analysis
 
-`native/qt/` is ~4,400 lines across seven units. The design reduces to
+`native/qt/` is ~5,300 lines across seven units. The design reduces to
 four mechanisms.
 
 ### 1. One seam to the core: `CaptureController`
@@ -201,9 +204,14 @@ the Camera face and the Field face as the user switches (`setParent` +
 `insertWidget`). It renders the display image itself — colour base when the
 packet carries one, luma otherwise — and burns zebras, peaking and the
 outdoor rendering **into the pixels**, then paints vector overlays (zones,
-grid, focus map, HUD, countdown ring, bird box, verdict frame) on top. The
-Camera face stashes the overlay flags on entry and restores them on exit: a
-camera app shows the picture. Fullscreen is a deliberate *second* widget in
+grid, focus map, HUD, countdown ring, bird box, verdict frame) on top.
+Every overlay toggle lives in one place — Scene > "Focus aids and
+overlays" — and the wheel-over-the-preview gesture syncs every checkbox,
+so no toggle can lie about its state; three paints are exempt (countdown
+ring, bird box, verdict frame) because each answers "is it working?" and
+hiding it would cost a shot. The Camera face stashes the overlay flags on
+entry and restores them on exit: a camera app shows the picture.
+Fullscreen is a deliberate *second* widget in
 a separate window (settings copied over), so closing it can never leave the
 main window half-configured.
 
@@ -211,20 +219,39 @@ main window half-configured.
 
 Every bound control goes through five tiny factories (`spinInt`,
 `spinDouble`, `check`, `comboStr`, `line`) that write the config key on
-change, save, and register `{key, widget, refresh}` in one list. Four
+change, save, and register `{key, widget, refresh}` in one list. Five
 features are then *derived* from that single list rather than built:
 
 | Feature | Derivation |
 |---|---|
 | find-a-setting search | walk each bind's form label + owning accordion → completer entries |
-| provenance (amber labels) | `cfg[key] != Config::defaults()[key]`, restyle on flip only |
-| the reset dialog | the same diff, listed and applied |
+| provenance (amber labels) | `cfg[key] != Config::defaults()[key]`, restyle on flip only, counted per key |
+| the reset dialog | the same diff, deduplicated, listed and applied |
 | profiles | `Config::snapshot()` minus the machine keys, applied key-by-key |
+| sibling sync | after any write, every *other* bind on the same key refreshes — so a key bound in two places (`exif_enabled` on the Machine tab and the encode panel) can never disagree with itself |
 
-Adding a setting is one factory call; search, provenance, reset and
-profiles pick it up with no further code. The prototype's known bugs here —
-unregistered widgets invisible to reset, doubly-bound combos — were fixed
-in the port rather than reproduced.
+Adding a setting is one factory call; search, provenance, reset, profiles
+and sibling sync pick it up with no further code — **provided the key
+exists in `Config::defaults()`**. That proviso is the registry's one
+earned invariant: provenance and reset silently skip unknown keys, and the
+factories read the initial value with no fallback, so a bound key missing
+from defaults produces a control that shows a clamped garbage value on
+first run and can never be reset. The port learned this the expensive way
+(the encode panel booted at 1 fps / CRF 0 because the `encode_*` defaults
+had not been carried), so the rule is now stated here: **every key a
+factory binds must have a default.**
+
+The prototype's known bugs in this area — unregistered widgets invisible
+to reset, doubly-bound combos — were fixed in the port rather than
+reproduced. Its subtler trap was fidelity itself: the port faithfully
+carried `meter_ema`, a control 1.x's own defaults table marks as
+superseded, while the keys that superseded it (`ae_damping`,
+`ae_average_n`/`_mode`, `pid_integral_clamp_ev`, `prefer_exposure_time`)
+had controls in neither line. The rule that shook out: **parity is owed to
+behaviour, not to dead weight** — every key the core actually reads gets a
+control; a control nothing reads gets deleted. The full key-to-control map
+lives in [PHYSICS.md](PHYSICS.md); the ledger of what was kept, added and
+dropped is [PARITY.md](PARITY.md).
 
 ### 4. The face ↔ shell contract
 

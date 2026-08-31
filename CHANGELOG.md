@@ -45,6 +45,35 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **Coherent controls, and the physics on paper.** A full audit of the
+  native GUI against the prototype-as-specification found the port had
+  been faithful to a fault: it carried the one control 1.x should have
+  deleted (`meter_ema`, a "Meter smoothing" slider that nothing reads in
+  either line) and, like 1.x, gave no controls to the live keys that
+  superseded it. Fixed at the root: `Config::defaults()` now carries the
+  complete prototype key set (`ui_face`, `shoot_mode`, the outdoor and
+  tone-level keys, `sharpness_reference`, all `exif_*` and `encode_*`),
+  which is what the settings registry's derived features — provenance,
+  the reset dialog, first-run values — silently depend on; the encode
+  panel no longer boots at 1 fps / CRF 0 / ultrafast. The dead slider is
+  gone and every tunable the exposure controller actually reads has its
+  spinbox: damping, the meter-average window and mode, the integral
+  clamp, the shutter-vs-gain priority, the sky clip budget and subject
+  weight. Bird Flight's gates now list in the ladder's judging order —
+  the same order the Field face shows live — and the one threshold that
+  ladder displayed but nothing could edit (`bf_motion_min`) got its
+  control. Every overlay toggle moved to one home (Scene > "Focus aids
+  and overlays"; the toggle-all wheel gesture now syncs all seven
+  checkboxes instead of four), a key bound in two places keeps its
+  siblings in step, typing site coordinates arms `site_set` instead of
+  letting the sun readout disagree with visibly-correct numbers, the
+  planner's lens geometry (`lens_focal_mm`, `sensor_width_mm`) is
+  editable next to the site, the boot face is a Machine-tab combo, and
+  `outdoor_style` is persisted (1.x remembered the mode but forgot the
+  style). Two new documents carry the explanations: `native/PHYSICS.md`
+  — every tuned constant, the reasoning behind it, and the control that
+  sets it — and `native/PARITY.md`, the feature-by-feature and
+  key-by-key ledger of the native line against the prototype.
 - **Colour.** The line was luma-only by inheritance -- every meter and
   gate runs on the Y plane, and the RC's in-tree encoder wrote grayscale
   because the synthetic sky had no chroma to invent. Real sources do. The

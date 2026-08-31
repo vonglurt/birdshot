@@ -13,7 +13,9 @@ CI matrix holding Linux, Windows and FreeBSD to the same bar.
 ---
 
 **Design philosophy, the layer diagram and the GUI analysis live in
-[ARCHITECTURE.md](ARCHITECTURE.md).**
+[ARCHITECTURE.md](ARCHITECTURE.md). The physics — every tuned number and
+the control that sets it — is [PHYSICS.md](PHYSICS.md); the feature-by-
+feature ledger against the 1.x prototype is [PARITY.md](PARITY.md).**
 
 ## Why a rewrite
 
@@ -66,15 +68,16 @@ Stated plainly, because an RC that hides its edges is not a candidate:
   under `native/qt/`, a Qt 6 Widgets rewrite of the prototype's four
   faces (Camera / Field / Bench / Library, Ctrl+1..4) over the same
   settings.json: live preview with the full overlay stack, the Bench
-  settings rail with search/provenance/profiles, the Bird Flight gate
-  ladder, the Library darkroom. It builds only when CMake finds Qt 6
-  (LGPL, dynamically linked — the app stays MIT; the 1.x caveat was
-  PyQt5's GPL, which does not apply here) and needs a platform camera
-  backend before it can shoot anything real. `birdshot gui` — the
-  loopback HTTP viewfinder, zero-dependency — remains for headless and
-  remote use. Pieces whose core is not ported (video, cascade, EXIF,
-  encode) are greyed in the GUI with the reason, exactly how the
-  prototype gated what a camera could not do.
+  settings rail with search/provenance/profiles — every key the core
+  reads has a bound control, mapped one-to-one in
+  [PHYSICS.md](PHYSICS.md) — the Bird Flight gate ladder, the Library
+  darkroom. It builds only when CMake finds Qt 6 (LGPL, dynamically
+  linked — the app stays MIT; the 1.x caveat was PyQt5's GPL, which does
+  not apply here) and needs a platform camera backend before it can
+  shoot anything real. `birdshot gui` — the loopback HTTP viewfinder,
+  zero-dependency — remains for headless and remote use. Pieces whose
+  core is not ported (video, the cascade) are greyed in the GUI with the
+  reason, exactly how the prototype gated what a camera could not do.
 - **Most platform camera backends.** The first one is in: **AVFoundation
   (macOS)** captures real frames from real hardware through the full
   pipeline -- webcams and external cameras, listed by the GUI's camera
