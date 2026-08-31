@@ -53,11 +53,19 @@ every platform to a green build and selftest.
   the same files to the same places). `prototype/README.md` states the
   policy: bug fixes only, no new features, the tree retires when a native
   camera backend shoots real frames.
+- **The native line grew its first face.** `birdshot gui` serves a
+  viewfinder over loopback HTTP: the binary runs the live pipeline —
+  capture, metering, AE, gates — and the browser is the display. An MJPEG
+  stream, a status strip (verdict, shutter, gain, lux, meter/target, AE
+  state, fps, solar elevation when a site is set), one embedded page, no
+  toolkit, still one static file. Loopback only, by design. Covered by a
+  new selftest check (30 now) that fetches frames from it.
 - **The compiled line owns the Makefile.** `make run`, `doctor`,
   `selftest`, `info` and `dist` all mean the native binary now (`make
-  build` compiles it; `make run ARGS='plan --days 3'` passes arguments,
-  bare it prints the command list). `make check` is compiled-first: the
-  gate builds the native line and runs its 29-check selftest before the
+  build` compiles it; bare `make run` opens the GUI — the viewfinder —
+  exactly as it always launched the GUI; `make run ARGS='plan --days 3'`
+  runs any other command). `make check` is compiled-first: the
+  gate builds the native line and runs its selftest before the
   lint/sanitise/vendor scans. The Python targets live on with a
   `prototype-` prefix: `prototype`, `prototype-debug`, `prototype-doctor`,
   `prototype-deps`, `prototype-dist`, `prototype-selftest`,

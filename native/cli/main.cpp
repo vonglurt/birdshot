@@ -20,6 +20,7 @@
 #include "birdshot/config.hpp"
 #include "birdshot/engine.hpp"
 #include "birdshot/geo.hpp"
+#include "birdshot/gui.hpp"
 #include "birdshot/jpeg.hpp"
 #include "birdshot/naming.hpp"
 #include "birdshot/plan.hpp"
@@ -61,6 +62,8 @@ struct Args {
   double interval = -1.0;
   double focal = 0.0;
   long long count = -1;
+  int port = 0;
+  bool no_open = false;
   int days = 7;
   bool verbose = false;
   bool json = false;
@@ -122,6 +125,12 @@ bool parse_args(int argc, char** argv, int from, Args* out, std::string* err) {
       const char* v = need_value("--focal");
       if (!v) return false;
       out->focal = std::atof(v);
+    } else if (a == "--port") {
+      const char* v = need_value("--port");
+      if (!v) return false;
+      out->port = std::atoi(v);
+    } else if (a == "--no-open") {
+      out->no_open = true;
     } else if (!a.empty() && a[0] == '-') {
       *err = "unknown option " + a;
       return false;
@@ -192,6 +201,9 @@ int usage() {
       "  rapid      [-n N]             flat centisecond names, fastest path\n"
       "  timelapse  [-i SEC] [-n N]    one frame every SEC seconds\n"
       "  birdflight [-n TAKES] [-v]    watch the sky; fire on a bird\n"
+      "\n"
+      "viewfinder\n"
+      "  gui        [--port N] [--no-open]   the live pipeline in your browser\n"
       "\n"
       "horizons\n"
       "  sun   [--site lat,lon] [--date YYYY-MM-DD]   position now + today's events\n"
@@ -468,6 +480,12 @@ int main(int argc, char** argv) {
 
   Config cfg(args.config_path.empty() ? default_config_path() : args.config_path);
 
+  if (cmd == "gui") {
+    GuiOptions gopts;
+    gopts.port = args.port;
+    gopts.open_browser = !args.no_open;
+    return run_gui(cfg, gopts);
+  }
   if (cmd == "info") return cmd_info(cfg);
   if (cmd == "sun") return cmd_sun(cfg, args);
   if (cmd == "plan") return cmd_plan(cfg, args);

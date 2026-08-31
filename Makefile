@@ -29,9 +29,9 @@ help:
 	@echo
 	@echo '  make check          the pre-push gate: build + selftest + lint + sanitise + vendor-check'
 	@echo '  make build          compile the native line (cmake, Release)'
-	@echo '  make run            build + run the native binary; ARGS= passes through'
+	@echo '  make run            build + open the GUI (the viewfinder, in your browser)'
 	@echo '  make doctor         native doctor: deps, cameras, storage'
-	@echo '  make selftest       the native selftest, 29 checks, no hardware needed'
+	@echo '  make selftest       the native selftest, 30 checks, no hardware needed'
 	@echo '  make info           native info: backend, site, storage'
 	@echo '  make dist           stage the native binary into dist/'
 	@echo
@@ -146,10 +146,11 @@ build:
 	@cmake -S native -B $(NATIVE_BUILD) -DCMAKE_BUILD_TYPE=Release
 	@cmake --build $(NATIVE_BUILD) --config Release
 
-# With no ARGS the binary prints its command list -- that is the front door
-# of a CLI. `make run ARGS='plan --days 3'` runs a real command.
+# Bare `make run` launches the GUI, as it always has: the viewfinder, served
+# by the binary over loopback, opens in your browser. Any other command rides
+# ARGS: `make run ARGS='plan --days 3'`.
 run: build
-	@$(NATIVE_BUILD)/birdshot $(if $(ARGS),$(ARGS),help)
+	@$(NATIVE_BUILD)/birdshot $(if $(ARGS),$(ARGS),gui)
 
 doctor: build
 	@$(NATIVE_BUILD)/birdshot doctor

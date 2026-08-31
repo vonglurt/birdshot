@@ -51,12 +51,17 @@ add_library(birdshot_core STATIC
   src/storage.cpp
   src/synthetic.cpp
   src/engine.cpp
+  src/gui.cpp
   src/plan.cpp
   src/align.cpp
   src/selftest.cpp
 )
 target_include_directories(birdshot_core PUBLIC include)
 target_link_libraries(birdshot_core PUBLIC Threads::Threads)
+if(WIN32)
+  # The viewfinder's loopback HTTP server.
+  target_link_libraries(birdshot_core PUBLIC ws2_32)
+endif()
 
 add_executable(birdshot cli/main.cpp)
 target_link_libraries(birdshot PRIVATE birdshot_core)

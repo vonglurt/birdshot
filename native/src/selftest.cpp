@@ -14,10 +14,22 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "birdshot/align.hpp"
 #include "birdshot/analysis.hpp"
@@ -27,6 +39,7 @@
 #include "birdshot/engine.hpp"
 #include "birdshot/exposure.hpp"
 #include "birdshot/geo.hpp"
+#include "birdshot/gui.hpp"
 #include "birdshot/image.hpp"
 #include "birdshot/jpeg.hpp"
 #include "birdshot/json.hpp"
@@ -642,6 +655,73 @@ std::string t_engine_ae_converges() {
   return "";
 }
 
+// A one-shot loopback GET, just enough client to exercise the viewfinder.
+// The Viewfinder's own start() has already done any platform socket init.
+std::string loopback_get(int port, const char* path) {
+#ifdef _WIN32
+  using sock_t = SOCKET;
+#else
+  using sock_t = int;
+#endif
+  const sock_t s = ::socket(AF_INET, SOCK_STREAM, 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = htons(static_cast<uint16_t>(port));
+  std::string resp;
+  if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
+    const std::string req = std::string("GET ") + path +
+                            " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    ::send(s, req.data(), static_cast<int>(req.size()), 0);
+    char buf[4096];
+    for (;;) {
+      const auto n = ::recv(s, buf, sizeof(buf), 0);
+      if (n <= 0) break;
+      resp.append(buf, static_cast<size_t>(n));
+    }
+  }
+#ifdef _WIN32
+  closesocket(s);
+#else
+  ::close(s);
+#endif
+  return resp;
+}
+
+std::string t_gui_viewfinder() {
+  const std::string cfg_path = (fs::path(tmp_root()) / "gui" / "settings.json").string();
+  Config cfg(cfg_path);
+  cfg.set("gui_preview_fps", Json(60.0));
+  Viewfinder vf(cfg);
+  std::string err;
+  if (!vf.start(0, &err)) return err;
+  EXPECT(vf.port() > 0);
+
+  // The capture thread needs a beat to land the first frame.
+  std::string frame;
+  for (int i = 0; i < 100 && frame.find("200 OK") == std::string::npos; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    frame = loopback_get(vf.port(), "/frame.jpg");
+  }
+  EXPECT(frame.find("200 OK") != std::string::npos);
+  EXPECT(frame.find("image/jpeg") != std::string::npos);
+  const size_t body = frame.find("\r\n\r\n");
+  EXPECT(body != std::string::npos);
+  EXPECT(frame.size() > body + 6);
+  EXPECT(static_cast<unsigned char>(frame[body + 4]) == 0xFF);  // JPEG SOI
+  EXPECT(static_cast<unsigned char>(frame[body + 5]) == 0xD8);
+
+  const std::string status = loopback_get(vf.port(), "/status.json");
+  EXPECT(status.find("\"verdict\"") != std::string::npos);
+  EXPECT(status.find("\"exposure_us\"") != std::string::npos);
+
+  const std::string page = loopback_get(vf.port(), "/");
+  EXPECT(page.find("viewfinder") != std::string::npos);
+
+  vf.stop();
+  return "";
+}
+
 }  // namespace
 
 int run_selftest(bool verbose) {
@@ -676,6 +756,7 @@ int run_selftest(bool verbose) {
       {"engine: COLLECT end to end", t_engine_collect},
       {"engine: RAPID end to end", t_engine_rapid},
       {"engine: AE converges on the synthetic sky", t_engine_ae_converges},
+      {"gui: viewfinder serves over loopback", t_gui_viewfinder},
   };
 
   int failures = 0, skips = 0;

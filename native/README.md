@@ -47,7 +47,7 @@ multi-day alignment, shoot planning) that 1.x only had as a design review:
 | **Alignment** | `birdshot align`: frames from different days paired by **solar elevation**, not clock time, plus a pixel-shift refiner for stacking |
 | **Storage** | `sess-`/`rapid-`/`tlc-` sessions, `s<N>`/`ms<N>`/`us<N>` buckets, centisecond names claimed with `O_EXCL`, `.part` renames, `index.jsonl`, resume state |
 | **JPEG** | an in-tree baseline JFIF encoder (luma), decodable by everything we could throw at it |
-| **Selftest** | 29 checks covering all of the above, including three end-to-end engine runs; `ctest` wired |
+| **Selftest** | 30 checks covering all of the above, including three end-to-end engine runs and a loopback fetch from the viewfinder; `ctest` wired |
 
 The synthetic backend deserves a sentence: with a site configured it lights
 its sky from the **real solar elevation at your coordinates** — capture at
@@ -59,11 +59,13 @@ exercised, end to end, anywhere, at any hour, honestly.
 
 Stated plainly, because an RC that hides its edges is not a candidate:
 
-- **The GUI.** The four faces (Camera/Field/Bench/Library) remain 1.x
-  PyQt5. The native GUI is the headline 2.0.0 work item; the engine was
+- **Most of the GUI.** The native line has its first face — `birdshot
+  gui`, a viewfinder served over loopback HTTP: the binary runs the live
+  pipeline and your browser is the display, no toolkit, still one static
+  file. The four faces (Camera/Field/Bench/Library) remain 1.x PyQt5; the
+  full native GUI is the headline 2.0.0 work item, and the engine was
   deliberately built callback-out so a front end attaches without touching
-  it. Until then, the native line is the headless instrument and the
-  Python line remains the desk.
+  it.
 - **Platform camera backends.** The backend interface is final and the
   synthetic backend proves the pipeline; V4L2 (Linux/BSD), AVFoundation
   (macOS), Media Foundation (Windows) and libcamera (Pi) are the ports to
@@ -116,12 +118,13 @@ that ran the Python line picks up its tuning. `--config` points anywhere.
 | `backend`, `synthetic`, `engine` | capture: interface, reference backend, the loop |
 | `plan`, `align` | shoot planning and multi-day alignment |
 | `jpeg`, `image` | the baseline JFIF encoder and the luma plane |
-| `selftest` | the 29-check gate; `cli/main.cpp` is the binary |
+| `gui` | the viewfinder: the loopback HTTP server behind `birdshot gui` |
+| `selftest` | the 30-check gate; `cli/main.cpp` is the binary |
 
 ## Versioning
 
-The 1.x Python line continues under `src/` and is what runs on the deployed
-Pi today. This tree is the 2.0 line; `2.0.0` final is cut from this RC once
+The 1.x Python line continues, deprecated, under `prototype/` and is what
+runs on the deployed Pi today. This tree is the 2.0 line; `2.0.0` final is cut from this RC once
 the selftest has passed on each shipping platform's CI **and** a platform
 camera backend has captured real frames on real hardware — the same
 no-rc-without-the-instrument rule 1.x releases follow.
