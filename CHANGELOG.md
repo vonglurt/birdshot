@@ -45,6 +45,32 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **The native desktop GUI: the four faces, compiled.** `birdshot-gui`
+  (`native/qt/`, Qt 6 Widgets) is a full rewrite of the prototype's GUI
+  over the native core — same layout, same settings.json, same look
+  (Fusion dark palette, color for color). One window, four faces
+  (Camera / Field / Bench / Library, Ctrl+1..4, `[`/`]` steps the mode
+  dial), one shared preview reparented between them. The preview carries
+  the whole overlay stack: clipping zebras, focus peaking, metering
+  zones, thirds grid, focus map with the sharpest tile ringed, sharpness
+  readout with peak-hold, HUD, outdoor mode (percentile stretch +
+  hazard-striped edges), verdict frames, the Bird Flight subject box.
+  Bench has the settings rail (Shoot/Scene/Machine accordions bound to
+  the live config), find-a-setting search, amber changed-from-default
+  provenance with the reset dialog, named profiles (machine keys never
+  ride along), the interactive histogram with black/white levels, and
+  the in-GUI doctor. Field has the big START/STOP and the live gate
+  ladder — every Bird Flight gate's value against its threshold, fed by
+  a new engine sighting tap, with takes latched green. The Library reads
+  sessions and `index.jsonl` for real: thumbnails, verdict badges, the
+  trigger that fired each take, use-as-sharpness-reference, open/delete.
+  Recording runs the real Engine with its frame tap painting live (rate-
+  limited; the engine still runs at full speed). Qt 6 is optional and
+  LGPL, dynamically linked — the app stays MIT; the 1.x caveat was
+  PyQt5's GPL, which does not apply here. Without Qt, the build is
+  unchanged and `make run` falls back to the browser viewfinder.
+  Capability gating carries over: video, cascade and EXIF sections are
+  greyed with the reason until their cores are ported.
 - **The Python line is now the prototype, and it is deprecated.** The whole
   1.x tree — `src/`, `bin/`, `pyproject.toml`, `install.sh`, `sync.sh`,
   `mac/`, `packaging/` — moved into `prototype/`, self-contained and

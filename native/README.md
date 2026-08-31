@@ -59,13 +59,19 @@ exercised, end to end, anywhere, at any hour, honestly.
 
 Stated plainly, because an RC that hides its edges is not a candidate:
 
-- **Most of the GUI.** The native line has its first face — `birdshot
-  gui`, a viewfinder served over loopback HTTP: the binary runs the live
-  pipeline and your browser is the display, no toolkit, still one static
-  file. The four faces (Camera/Field/Bench/Library) remain 1.x PyQt5; the
-  full native GUI is the headline 2.0.0 work item, and the engine was
-  deliberately built callback-out so a front end attaches without touching
-  it.
+- **Some GUI edges.** The desktop front end exists — `birdshot-gui`
+  under `native/qt/`, a Qt 6 Widgets rewrite of the prototype's four
+  faces (Camera / Field / Bench / Library, Ctrl+1..4) over the same
+  settings.json: live preview with the full overlay stack, the Bench
+  settings rail with search/provenance/profiles, the Bird Flight gate
+  ladder, the Library darkroom. It builds only when CMake finds Qt 6
+  (LGPL, dynamically linked — the app stays MIT; the 1.x caveat was
+  PyQt5's GPL, which does not apply here) and needs a platform camera
+  backend before it can shoot anything real. `birdshot gui` — the
+  loopback HTTP viewfinder, zero-dependency — remains for headless and
+  remote use. Pieces whose core is not ported (video, cascade, EXIF,
+  encode) are greyed in the GUI with the reason, exactly how the
+  prototype gated what a camera could not do.
 - **Platform camera backends.** The backend interface is final and the
   synthetic backend proves the pipeline; V4L2 (Linux/BSD), AVFoundation
   (macOS), Media Foundation (Windows) and libcamera (Pi) are the ports to
@@ -80,6 +86,12 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 build/birdshot selftest
 ```
+
+With Qt 6 present (`brew install qt`, `apt install qt6-base-dev`, ...) the
+same build also produces `build/birdshot-gui`, the desktop front end; pass
+`-DCMAKE_PREFIX_PATH=$(brew --prefix qt)` on macOS if CMake does not find
+it on its own (the top-level `make build` does this for you). Without Qt,
+nothing changes: the core and the CLI stay dependency-free.
 
 That is the whole recipe on every platform (see
 `packaging/windows/README.md` for the MSVC spelling). CMake ≥ 3.16 and any
@@ -118,7 +130,8 @@ that ran the Python line picks up its tuning. `--config` points anywhere.
 | `backend`, `synthetic`, `engine` | capture: interface, reference backend, the loop |
 | `plan`, `align` | shoot planning and multi-day alignment |
 | `jpeg`, `image` | the baseline JFIF encoder and the luma plane |
-| `gui` | the viewfinder: the loopback HTTP server behind `birdshot gui` |
+| `gui` | PreviewPump (the shared idle capture loop) + the loopback HTTP viewfinder |
+| `../qt/` | the Qt Widgets front end: four faces, the Bench rail, the gate ladder |
 | `selftest` | the 30-check gate; `cli/main.cpp` is the binary |
 
 ## Versioning

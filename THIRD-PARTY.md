@@ -76,6 +76,22 @@ Python packages, installed by the operator with `pip3`/`apt`. None is vendored.
 dynamically linked by picamera2, not by birdshot, and birdshot never links
 against it.
 
+### The native line (2.0)
+
+The core library and the `birdshot` CLI under `native/` have **no third-party
+dependencies at all** — C++17 and the standard library. One optional target
+links against a system library:
+
+| Library | Licence | How birdshot uses it | Copyleft? |
+|---|---|---|---|
+| **Qt 6** (Widgets) | LGPL-3.0 **or** commercial | `native/qt/` — the `birdshot-gui` desktop front end, built only when CMake finds Qt 6 | LGPL: dynamic linking keeps birdshot MIT |
+
+This is the licensing fix the rewrite promised: the 1.x GUI's caveat was
+**PyQt5's GPL** — the Python *bindings*, not Qt itself. The native front end
+uses Qt's C++ API directly under the LGPL, dynamically linked, so the
+application remains MIT and no copyleft obligation attaches. Without Qt on
+the build machine, the core and CLI build exactly as before.
+
 ## External programs
 
 Invoked as separate processes via `subprocess`. Process invocation is an

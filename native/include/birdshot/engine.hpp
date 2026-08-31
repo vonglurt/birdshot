@@ -16,6 +16,7 @@
 #include <string>
 
 #include "birdshot/backend.hpp"
+#include "birdshot/birdflight.hpp"
 #include "birdshot/config.hpp"
 #include "birdshot/storage.hpp"
 
@@ -55,6 +56,17 @@ class Engine {
   using LogFn = std::function<void(const std::string&)>;
   void set_log(LogFn fn) { log_ = std::move(fn); }
 
+  // A front end's window into the loop: called from the engine thread with
+  // every frame and its numbers, whether or not the frame was saved. The
+  // callee copies what it needs and returns quickly.
+  using FrameTap = std::function<void(const Frame&, const FrameStats&)>;
+  void set_frame_tap(FrameTap fn) { tap_ = std::move(fn); }
+
+  // Bird Flight only: every judged frame's sighting, with the running take
+  // count and whether this frame fired one. Same thread rules as the tap.
+  using SightingTap = std::function<void(const struct Sighting&, int64_t take_n, bool fired)>;
+  void set_sighting_tap(SightingTap fn) { sighting_tap_ = std::move(fn); }
+
  private:
   void log(const std::string& line) const { if (log_) log_(line); }
 
@@ -62,6 +74,8 @@ class Engine {
   Backend& backend_;
   std::atomic<bool> stop_{false};
   LogFn log_;
+  FrameTap tap_;
+  SightingTap sighting_tap_;
 };
 
 }  // namespace bs

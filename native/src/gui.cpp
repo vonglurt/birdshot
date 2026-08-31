@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Paul Richeson
 //
-// The viewfinder: one capture thread running the real pipeline, one accept
-// thread, one short-lived thread per HTTP request. Everything is served
-// from memory; nothing here writes a session to disk -- recording stays
-// with `birdshot capture` and friends.
+// PreviewPump: the idle capture loop every front end shares.
+// Viewfinder: the `birdshot gui` loopback HTTP server -- one accept
+// thread, one short-lived thread per request, frames from the pump.
+// Recording happens in neither: it stays with the Engine.
 //
 // The server binds loopback only, on purpose: this is a viewfinder for the
 // person at the machine, not a network camera. Exposing it further is a
@@ -57,6 +57,97 @@ double unix_now() {
   using namespace std::chrono;
   return duration<double>(system_clock::now().time_since_epoch()).count();
 }
+
+}  // namespace
+
+// ------------------------------------------------------------- the pump --
+
+PreviewPump::PreviewPump(Config& cfg, Backend& backend) : cfg_(cfg), backend_(backend) {}
+
+PreviewPump::~PreviewPump() { stop(); }
+
+void PreviewPump::start(Sink sink) {
+  stop();
+  sink_ = std::move(sink);
+  stopped_.store(false);
+  thread_ = std::thread(&PreviewPump::loop, this);
+}
+
+void PreviewPump::stop() {
+  stopped_.store(true);
+  if (thread_.joinable()) thread_.join();
+}
+
+// The engine's loop, minus storage: capture, analyse, let AE steer. AE gets
+// virtual frame-cadence time (seq * 0.25) exactly as the engine feeds it --
+// the PID gains are tuned for the 1.x frame interval, and wall-clock dt at
+// preview rates makes the d-term amplify metering noise.
+void PreviewPump::loop() {
+  ExposureController ae(cfg_);
+  ae.set_limits(backend_.limits());
+
+  const bool auto_exposure = cfg_.boolean("auto_exposure", true);
+  int64_t exposure_us = static_cast<int64_t>(
+      auto_exposure ? cfg_.state("last_shutter_us").number(2000)
+                    : cfg_.num("manual_shutter_us", 2000));
+  double gain = auto_exposure ? cfg_.state("last_gain").number(1.0)
+                              : cfg_.num("manual_gain", 1.0);
+  if (exposure_us <= 0) exposure_us = 2000;
+  if (gain < kGainMin) gain = kGainMin;
+
+  {
+    const Frame probe = backend_.capture(exposure_us, gain);
+    if (auto seeded = ae.seed(probe.lux)) {
+      exposure_us = seeded->first;
+      gain = seeded->second;
+    }
+  }
+
+  const double fps_cap = cfg_.num("gui_preview_fps", 12.0);
+  const double frame_due = fps_cap > 0 ? 1.0 / fps_cap : 0.0;
+
+  int64_t seq = 0;
+  double fps = 0.0;
+  double last = mono_now();
+
+  while (!stopped_.load()) {
+    Frame frame = backend_.capture(exposure_us, gain);
+    ++seq;
+
+    const FrameStats st = analyse(frame.y, cfg_, frame.y.centre_crop(512));
+    ExposureDecision dec;
+    if (auto_exposure) {
+      dec = ae.update(st, frame.exposure_us, frame.gain, frame.lux, seq * 0.25);
+      exposure_us = dec.exposure_us;
+      gain = dec.gain;
+    } else {
+      dec.exposure_us = frame.exposure_us;
+      dec.gain = frame.gain;
+      dec.meter = st.meter;
+      dec.target = ae.target_luma();
+      dec.settled = true;
+      dec.mode = "manual";
+    }
+
+    const double now = mono_now();
+    const double dt = now - last;
+    last = now;
+    // Skip the first sample: its dt is capture time alone, before any
+    // cadence sleep, and it would take the EMA seconds to live it down.
+    if (dt > 0 && seq > 1) fps = fps == 0.0 ? 1.0 / dt : 0.9 * fps + 0.1 / dt;
+
+    if (sink_) sink_(frame, st, dec, fps);
+
+    const double spent = mono_now() - now;
+    if (frame_due > spent)
+      std::this_thread::sleep_for(std::chrono::duration<double>(frame_due - spent));
+  }
+  ae.persist();
+}
+
+// ------------------------------------------------------- the viewfinder --
+
+namespace {
 
 void sockets_init() {
 #ifdef _WIN32
@@ -205,7 +296,10 @@ bool Viewfinder::start(int port, std::string* err) {
   listen_fd_ = static_cast<intptr_t>(fd);
 
   stopping_.store(false);
-  capture_thread_ = std::thread(&Viewfinder::capture_loop, this);
+  backend_ = make_backend(cfg_);
+  pump_.reset(new PreviewPump(cfg_, *backend_));
+  pump_->start([this](const Frame& f, const FrameStats& st, const ExposureDecision& d,
+                      double fps) { on_frame(f, st, d, fps); });
   accept_thread_ = std::thread(&Viewfinder::accept_loop, this);
   return true;
 }
@@ -215,7 +309,7 @@ void Viewfinder::stop() {
   frame_cv_.notify_all();
   if (listen_fd_ >= 0) close_sock(static_cast<sock_t>(listen_fd_));
   if (accept_thread_.joinable()) accept_thread_.join();
-  if (capture_thread_.joinable()) capture_thread_.join();
+  if (pump_) pump_->stop();
   // Request threads are detached but must not outlive this object: they
   // check stopping_ at least every 500 ms, so this drains quickly.
   const double deadline = mono_now() + 2.0;
@@ -224,100 +318,42 @@ void Viewfinder::stop() {
   listen_fd_ = -1;
 }
 
-// The engine's loop, minus storage: capture, analyse, let AE steer. AE gets
-// virtual frame-cadence time (seq * 0.25) exactly as the engine feeds it --
-// the PID gains are tuned for the 1.x frame interval, and wall-clock dt at
-// preview rates makes the d-term amplify metering noise.
-void Viewfinder::capture_loop() {
-  const auto backend = make_backend(cfg_);
-  ExposureController ae(cfg_);
-  ae.set_limits(backend->limits());
+void Viewfinder::on_frame(const Frame& frame, const FrameStats& st, const ExposureDecision& dec,
+                          double fps) {
+  Json status = Json::object();
+  status["version"] = kVersion;
+  status["backend"] = backend_->name();
+  status["width"] = frame.y.w;
+  status["height"] = frame.y.h;
+  status["fps"] = fps;
+  status["exposure_us"] = static_cast<long long>(frame.exposure_us);
+  status["gain"] = frame.gain;
+  status["lux"] = frame.lux;
+  status["verdict"] = st.verdict;
+  status["meter"] = st.meter;
+  status["target"] = dec.target;
+  status["ae_mode"] = dec.mode;
+  status["settled"] = dec.settled;
+  status["clip_hi"] = st.clip_hi;
+  status["sharpness"] = st.sharpness_norm;
+  Json solar = Json::object();
+  if (cfg_.boolean("site_set", false)) {
+    const Site site = cfg_.site();
+    const SunPos sun = sun_position(unix_now(), site.lat_deg, site.lon_deg);
+    solar["sun"] = sun.elevation_deg;
+    solar["azimuth"] = sun.azimuth_deg;
+  }
+  status["solar"] = solar;
 
-  const bool auto_exposure = cfg_.boolean("auto_exposure", true);
-  int64_t exposure_us = static_cast<int64_t>(
-      auto_exposure ? cfg_.state("last_shutter_us").number(2000)
-                    : cfg_.num("manual_shutter_us", 2000));
-  double gain = auto_exposure ? cfg_.state("last_gain").number(1.0)
-                              : cfg_.num("manual_gain", 1.0);
-  if (exposure_us <= 0) exposure_us = 2000;
-  if (gain < kGainMin) gain = kGainMin;
-
+  std::vector<uint8_t> jpg =
+      encode_jpeg(frame.y, static_cast<int>(cfg_.num("gui_jpeg_quality", 85)));
   {
-    const Frame probe = backend->capture(exposure_us, gain);
-    if (auto seeded = ae.seed(probe.lux)) {
-      exposure_us = seeded->first;
-      gain = seeded->second;
-    }
+    std::lock_guard<std::mutex> lock(mu_);
+    jpeg_ = std::move(jpg);
+    status_json_ = status.dump();
+    ++generation_;
   }
-
-  const double fps_cap = cfg_.num("gui_preview_fps", 12.0);
-  const double frame_due = fps_cap > 0 ? 1.0 / fps_cap : 0.0;
-  const int quality = static_cast<int>(cfg_.num("gui_jpeg_quality", 85));
-  const bool site_set = cfg_.boolean("site_set", false);
-  const Site site = cfg_.site();
-
-  int64_t seq = 0;
-  double fps = 0.0;
-  double last = mono_now();
-
-  while (!stopping_.load()) {
-    Frame frame = backend->capture(exposure_us, gain);
-    ++seq;
-
-    const FrameStats st = analyse(frame.y, cfg_, frame.y.centre_crop(512));
-    ExposureDecision dec;
-    if (auto_exposure) {
-      dec = ae.update(st, frame.exposure_us, frame.gain, frame.lux, seq * 0.25);
-      exposure_us = dec.exposure_us;
-      gain = dec.gain;
-    }
-
-    const double now = mono_now();
-    const double dt = now - last;
-    last = now;
-    // Skip the first sample: its dt is capture time alone, before any
-    // cadence sleep, and it would take the EMA seconds to live it down.
-    if (dt > 0 && seq > 1) fps = fps == 0.0 ? 1.0 / dt : 0.9 * fps + 0.1 / dt;
-
-    Json status = Json::object();
-    status["version"] = kVersion;
-    status["backend"] = backend->name();
-    status["width"] = frame.y.w;
-    status["height"] = frame.y.h;
-    status["seq"] = static_cast<long long>(seq);
-    status["fps"] = fps;
-    status["exposure_us"] = static_cast<long long>(frame.exposure_us);
-    status["gain"] = frame.gain;
-    status["lux"] = frame.lux;
-    status["verdict"] = st.verdict;
-    status["meter"] = st.meter;
-    status["target"] = auto_exposure ? dec.target : ae.target_luma();
-    status["ae_mode"] = auto_exposure ? dec.mode : std::string("manual");
-    status["settled"] = auto_exposure ? dec.settled : true;
-    status["clip_hi"] = st.clip_hi;
-    status["sharpness"] = st.sharpness_norm;
-    Json solar = Json::object();
-    if (site_set) {
-      const SunPos sun = sun_position(unix_now(), site.lat_deg, site.lon_deg);
-      solar["sun"] = sun.elevation_deg;
-      solar["azimuth"] = sun.azimuth_deg;
-    }
-    status["solar"] = solar;
-
-    std::vector<uint8_t> jpg = encode_jpeg(frame.y, quality);
-    {
-      std::lock_guard<std::mutex> lock(mu_);
-      jpeg_ = std::move(jpg);
-      status_json_ = status.dump();
-      ++generation_;
-    }
-    frame_cv_.notify_all();
-
-    const double spent = mono_now() - now;
-    if (frame_due > spent)
-      std::this_thread::sleep_for(std::chrono::duration<double>(frame_due - spent));
-  }
-  ae.persist();
+  frame_cv_.notify_all();
 }
 
 void Viewfinder::accept_loop() {

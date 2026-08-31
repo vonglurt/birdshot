@@ -117,15 +117,18 @@ EngineReport Engine::run(const EngineOptions& opts) {
     const bool rapid = opts.mode == Mode::Rapid;
     FrameStats st = rapid ? meter_only(frame.y, cfg_)
                           : analyse(frame.y, cfg_, frame.y.centre_crop(512));
+    if (tap_) tap_(frame, st);
 
     // Bird Flight judges before anything is saved; only a take writes.
     bool save = true;
     if (opts.mode == Mode::BirdFlight) {
       const Sighting sighting = detector.update(frame.y);
       const double now = mono_now();
+      bool fired = false;
       if (burst_left > 0) {
         --burst_left;
       } else if (sighting.take && now >= cooldown_until) {
+        fired = true;
         ++rep.takes;
         burst_left = bf_burst - 1;
         cooldown_until = now + bf_cooldown_s;
@@ -139,6 +142,7 @@ EngineReport Engine::run(const EngineOptions& opts) {
           log("holding fire: " + why);
         }
       }
+      if (sighting_tap_) sighting_tap_(sighting, rep.takes, fired);
       if (save) {
         Json rec = st.to_json();
         rec["sighting"] = sighting.to_json();

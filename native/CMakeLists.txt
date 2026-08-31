@@ -68,5 +68,26 @@ target_link_libraries(birdshot PRIVATE birdshot_core)
 
 install(TARGETS birdshot RUNTIME DESTINATION bin)
 
+# ---------------------------------------------------------------- the GUI --
+# The Qt Widgets front end. Optional and additive: the core library and the
+# CLI stay dependency-free static builds; birdshot-gui links Qt 6 (LGPL-3.0)
+# dynamically, which keeps the application MIT -- the 1.x licensing caveat
+# was PyQt5's GPL, and it does not apply here. Absent Qt, nothing changes.
+option(BIRDSHOT_QT "Build the Qt Widgets front end when Qt 6 is present" ON)
+if(BIRDSHOT_QT)
+  find_package(Qt6 QUIET COMPONENTS Widgets)
+  if(Qt6_FOUND)
+    set(CMAKE_AUTOMOC ON)
+    file(GLOB qt_sources qt/*.cpp)
+    add_executable(birdshot-gui ${qt_sources})
+    target_link_libraries(birdshot-gui PRIVATE birdshot_core Qt6::Widgets)
+    set_target_properties(birdshot-gui PROPERTIES WIN32_EXECUTABLE ON)
+    install(TARGETS birdshot-gui RUNTIME DESTINATION bin)
+    message(STATUS "Qt ${Qt6_VERSION} found -- building birdshot-gui")
+  else()
+    message(STATUS "Qt 6 not found -- skipping birdshot-gui (core and CLI unaffected)")
+  endif()
+endif()
+
 enable_testing()
 add_test(NAME selftest COMMAND birdshot selftest)

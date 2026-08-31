@@ -14,6 +14,7 @@
 
 SHELL := /usr/bin/env bash
 NATIVE_BUILD := native/build
+QT_PREFIX := $(shell brew --prefix qt 2>/dev/null)
 PY_SRC := $(shell find prototype/src -name '*.py' 2>/dev/null)
 BIN_SRC := prototype/bin/birdshot-cli prototype/bin/birdshot-gui prototype/bin/birdshot-wallpaper
 SH_SRC := prototype/sync.sh prototype/install.sh $(wildcard prototype/mac/*.sh) .githooks/pre-commit
@@ -29,7 +30,7 @@ help:
 	@echo
 	@echo '  make check          the pre-push gate: build + selftest + lint + sanitise + vendor-check'
 	@echo '  make build          compile the native line (cmake, Release)'
-	@echo '  make run            build + open the GUI (the viewfinder, in your browser)'
+	@echo '  make run            build + open the GUI (Qt front end; browser viewfinder without Qt)'
 	@echo '  make doctor         native doctor: deps, cameras, storage'
 	@echo '  make selftest       the native selftest, 30 checks, no hardware needed'
 	@echo '  make info           native info: backend, site, storage'
@@ -143,14 +144,16 @@ hooks:
 # Needs only cmake and a C++17 compiler; the build directory is reused
 # across runs.
 build:
-	@cmake -S native -B $(NATIVE_BUILD) -DCMAKE_BUILD_TYPE=Release
+	@cmake -S native -B $(NATIVE_BUILD) -DCMAKE_BUILD_TYPE=Release $(if $(QT_PREFIX),-DCMAKE_PREFIX_PATH=$(QT_PREFIX))
 	@cmake --build $(NATIVE_BUILD) --config Release
 
-# Bare `make run` launches the GUI, as it always has: the viewfinder, served
-# by the binary over loopback, opens in your browser. Any other command rides
-# ARGS: `make run ARGS='plan --days 3'`.
+# Bare `make run` launches the GUI, as it always has: the Qt front end when
+# Qt was found at build time, else the browser viewfinder. Any other command
+# rides ARGS: `make run ARGS='plan --days 3'`.
 run: build
-	@$(NATIVE_BUILD)/birdshot $(if $(ARGS),$(ARGS),gui)
+	@if [ -n "$(ARGS)" ]; then $(NATIVE_BUILD)/birdshot $(ARGS); \
+	elif [ -x $(NATIVE_BUILD)/birdshot-gui ]; then $(NATIVE_BUILD)/birdshot-gui; \
+	else $(NATIVE_BUILD)/birdshot gui; fi
 
 doctor: build
 	@$(NATIVE_BUILD)/birdshot doctor
