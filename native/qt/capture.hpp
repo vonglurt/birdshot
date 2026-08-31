@@ -27,7 +27,8 @@
 // once emitted) and every number the faces read off it.
 struct FramePacket {
   std::shared_ptr<const bs::Gray8> y;
-  std::shared_ptr<const bs::Gray8> full;  // native plane when the backend delivers one
+  std::shared_ptr<const bs::Gray8> full;   // native luma when the backend delivers one
+  std::shared_ptr<const bs::Rgb8> color;   // display colour, letterboxed to match y
   bs::FrameStats stats;
   qint64 exposureUs = 0;
   double gain = 1.0;

@@ -45,6 +45,18 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **Colour.** The line was luma-only by inheritance -- every meter and
+  gate runs on the Y plane, and the RC's in-tree encoder wrote grayscale
+  because the synthetic sky had no chroma to invent. Real sources do. The
+  in-tree codec grew YCbCr 4:2:0 colour both ways (encoder cross-checked
+  by ffmpeg, 0.93 LSB round-trip), and colour now flows end to end:
+  the webcam converts its 420f planes, replay decodes colour, and the
+  synthetic scene renders a blue sky that warms toward the horizon at
+  the site's real golden hour. Saved frames are full-resolution colour
+  JPEGs; the preview and the browser viewfinder show colour with the
+  overlays burned in exactly as before. Analysis is untouched: gates,
+  metering, AE and Bird Flight still judge the luma plane, as they
+  always have. Selftest: 34 checks.
 - **EXIF, in-tree.** `birdshot exif <session>` stamps an APP1 (TIFF/Exif)
   segment into every indexed frame, losslessly and atomically -- identity
   from the `exif_*` keys, exposure/ISO/date-to-the-centisecond from

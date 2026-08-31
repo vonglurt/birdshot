@@ -46,8 +46,8 @@ multi-day alignment, shoot planning) that 1.x only had as a design review:
 | **Planning** | `birdshot plan`: per-evening sunset time/azimuth/drift, descent rate, contact window, golden hour, civil dusk — and whether your lens's FOV holds the swing from a fixed mount |
 | **Alignment** | `birdshot align`: frames from different days paired by **solar elevation**, not clock time, plus a pixel-shift refiner for stacking |
 | **Storage** | `sess-`/`rapid-`/`tlc-` sessions, `s<N>`/`ms<N>`/`us<N>` buckets, centisecond names claimed with `O_EXCL`, `.part` renames, `index.jsonl`, resume state |
-| **JPEG** | an in-tree baseline JFIF encoder (luma), decodable by everything we could throw at it |
-| **Selftest** | 33 checks covering all of the above, including three end-to-end engine runs, a loopback fetch from the viewfinder, and JPEG/EXIF/replay round-trips; `ctest` wired |
+| **JPEG** | an in-tree baseline JFIF encoder AND decoder -- grayscale and YCbCr 4:2:0 colour -- cross-validated against ffmpeg and exiftool |
+| **Selftest** | 34 checks covering all of the above, including three end-to-end engine runs, a loopback fetch from the viewfinder, and JPEG/EXIF/replay round-trips; `ctest` wired |
 
 The synthetic backend deserves a sentence: with a site configured it lights
 its sky from the **real solar elevation at your coordinates** — capture at
@@ -141,7 +141,7 @@ that ran the Python line picks up its tuning. `--config` points anywhere.
 | `backend`, `replay` | backend dispatch; a folder of stills as a camera |
 | `gui` | PreviewPump (the shared idle capture loop) + the loopback HTTP viewfinder |
 | `../qt/` | the Qt Widgets front end: four faces, the Bench rail, the gate ladder |
-| `selftest` | the 33-check gate; `cli/main.cpp` is the binary |
+| `selftest` | the 34-check gate; `cli/main.cpp` is the binary |
 
 ## Versioning
 

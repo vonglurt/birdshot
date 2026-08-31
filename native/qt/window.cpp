@@ -1453,7 +1453,7 @@ void MainWindow::onFrame(const FramePacket& p) {
   last_ = p;
 
   preview_->skyZoneFrac = cfg_.num("sky_zone_frac", 0.40);
-  preview_->setFrame(*p.y, p.stats);
+  preview_->setFrame(*p.y, p.stats, p.color.get());
   histogram_->target = cfg_.num("target_luma", 118.0);
   histogram_->setFrame(*p.y, p.stats);
 
@@ -1504,7 +1504,7 @@ void MainWindow::onFrame(const FramePacket& p) {
 
   if (focusMonitor_ && focusMonitor_->isVisible()) focusMonitor_->handleFrame(p);
   if (fullscreenPreview_) {
-    fullscreenPreview_->setFrame(*p.y, p.stats);
+    fullscreenPreview_->setFrame(*p.y, p.stats, p.color.get());
     fullscreenPreview_->setHud(hud);
     if (fullscreenPreview_->showFocusMap || fullscreenPreview_->showSharpness)
       fullscreenPreview_->setFocusMap(bs::focus_map(*p.y));

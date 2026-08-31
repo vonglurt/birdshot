@@ -68,7 +68,7 @@ class SyntheticBackend final : public Backend {
     f.exposure_us = quantise_exposure(exposure_us);
     f.gain = quantise_gain(gain);
     f.lux = scene_lux(f.ts);
-    f.y = render(f.ts, static_cast<double>(f.exposure_us) * f.gain, f.lux);
+    f.y = render(f.ts, static_cast<double>(f.exposure_us) * f.gain, f.lux, &f.color);
     ++seq_;
     return f;
   }
@@ -101,9 +101,23 @@ class SyntheticBackend final : public Backend {
     return 20000.0 * (1.0 + 0.15 * std::sin((ts - t0_) / 30.0));
   }
 
-  Gray8 render(double ts, double energy, double lux) const {
+  Gray8 render(double ts, double energy, double lux, Rgb8* color) const {
     Gray8 img(w_, h_);
+    *color = Rgb8(w_, h_);
     const double t = ts - t0_;
+
+    // Colour follows the light. High sun: blue sky. Low sun: the sky warms
+    // toward the horizon exactly when the planner says golden hour is --
+    // the same solar elevation that drives the scene's lux.
+    double warmth = 0.0;
+    if (site_set_) {
+      const SunPos sp = sun_position(ts, site_.lat_deg, site_.lon_deg);
+      if (sp.elevation_deg < 15.0)
+        warmth = clamp((15.0 - sp.elevation_deg) / 20.0, 0.0, 1.0);
+    }
+    const double sky_r = 0.72 + 0.30 * warmth;
+    const double sky_g = 0.84 - 0.08 * warmth;
+    const double sky_b = 1.00 - 0.36 * warmth;
 
     // Sensor response: luma = reflectance * lux * energy * k, with k chosen
     // so 2000 us x 1.0 against ~5000 lux puts the treeline near the metering
@@ -123,29 +137,45 @@ class SyntheticBackend final : public Backend {
 
     for (int y = 0; y < h_; ++y) {
       uint8_t* row = &img.px[static_cast<size_t>(y) * w_];
+      uint8_t* crow = &color->px[static_cast<size_t>(y) * w_ * 3];
       const bool sky_row = y < horizon;
       // Treeline boundary wobbles per column below.
       for (int x = 0; x < w_; ++x) {
         double refl;
+        double cr, cg, cb;  // channel weights around the luma
         const uint32_t colh = hash32(static_cast<uint32_t>(x) * 7919u);
         const int tree_top = horizon + static_cast<int>((colh & 31)) - 16;
         if (sky_row && y < tree_top) {
-          // Sky: bright, slightly darker toward the top.
+          // Sky: bright, slightly darker toward the top; warmer nearer the
+          // horizon when the sun is low.
           refl = 0.95 - 0.15 * (1.0 - static_cast<double>(y) / horizon);
+          const double low = static_cast<double>(y) / horizon;  // 1 at the treeline
+          cr = sky_r + 0.10 * warmth * low;
+          cg = sky_g;
+          cb = sky_b - 0.10 * warmth * low;
           // The bird.
           const double dx = (x - bird_cx) / bird_rx;
           const double dy = (y - bird_cy) / bird_ry;
-          if (dx * dx + dy * dy < 1.0) refl = 0.05;
+          if (dx * dx + dy * dy < 1.0) {
+            refl = 0.05;
+            cr = cg = cb = 1.0;  // a silhouette has no colour to speak of
+          }
         } else {
           // Treeline: dark, heavily textured -- the contrast tiles feed.
           const uint32_t n = hash32(static_cast<uint32_t>(y * w_ + x) * 2246822519u);
           refl = 0.28 + 0.18 * (static_cast<double>(n & 255) / 255.0 - 0.5);
+          cr = 0.78;
+          cg = 0.92;
+          cb = 0.55;  // conifer olive
         }
         // Photon-ish noise, per frame.
         const uint32_t nz = hash32((static_cast<uint32_t>(y * w_ + x)) ^ fseed);
         const double noise = (static_cast<double>(nz & 63) - 31.5) / 10.0;
         const double v = refl * scale + noise;
         row[x] = static_cast<uint8_t>(clamp(v, 0.0, 255.0));
+        crow[x * 3] = static_cast<uint8_t>(clamp(v * cr, 0.0, 255.0));
+        crow[x * 3 + 1] = static_cast<uint8_t>(clamp(v * cg, 0.0, 255.0));
+        crow[x * 3 + 2] = static_cast<uint8_t>(clamp(v * cb, 0.0, 255.0));
       }
     }
     return img;

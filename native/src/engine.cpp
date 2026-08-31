@@ -169,7 +169,9 @@ EngineReport Engine::run(const EngineOptions& opts) {
           session.claim_frame(frame.ts, frame.exposure_us, ".jpg", rapid);
       if (!part.empty()) {
         const std::vector<uint8_t> encoded =
-            encode_jpeg(frame.full.empty() ? frame.y : frame.full, jpeg_quality);
+            !frame.color.empty()
+                ? encode_jpeg(frame.color, jpeg_quality)
+                : encode_jpeg(frame.full.empty() ? frame.y : frame.full, jpeg_quality);
         std::FILE* f = std::fopen(part.c_str(), "wb");
         bool ok = f != nullptr;
         if (f) {

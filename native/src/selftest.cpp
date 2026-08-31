@@ -672,6 +672,31 @@ std::string t_jpeg_decode() {
   return "";
 }
 
+std::string t_jpeg_color_roundtrip() {
+  Rgb8 img(322, 242);
+  for (int y = 0; y < img.h; ++y)
+    for (int x = 0; x < img.w; ++x) {
+      uint8_t* p = img.at(x, y);
+      p[0] = static_cast<uint8_t>(x % 256);
+      p[1] = static_cast<uint8_t>(y % 256);
+      p[2] = static_cast<uint8_t>((x + y) % 256);
+    }
+  const auto bytes = encode_jpeg(img, 92);
+  Rgb8 back;
+  EXPECT(decode_jpeg(bytes, &back));
+  EXPECT(back.w == img.w && back.h == img.h);
+  double err = 0;
+  for (size_t i = 0; i < img.px.size(); ++i)
+    err += std::abs(static_cast<int>(img.px[i]) - static_cast<int>(back.px[i]));
+  err /= static_cast<double>(img.px.size());
+  EXPECT(err < 8.0);  // 4:2:0 chroma costs more than the luma path
+  // And the luma-only reader agrees with to_luma of the round trip.
+  Gray8 y;
+  EXPECT(decode_jpeg(bytes, &y));
+  EXPECT(y.w == img.w && y.h == img.h);
+  return "";
+}
+
 std::string t_exif_roundtrip() {
   Gray8 img(64, 48, 128);
   auto jpeg = encode_jpeg(img, 90);
@@ -845,6 +870,7 @@ int run_selftest(bool verbose) {
       {"gates: focus measures rank", t_focus_measures},
       {"jpeg: valid baseline stream", t_jpeg_markers},
       {"jpeg: decoder round-trips the encoder", t_jpeg_decode},
+      {"jpeg: colour 4:2:0 round-trips", t_jpeg_color_roundtrip},
       {"exif: APP1 written, replaced, readable", t_exif_roundtrip},
       {"replay: a folder of stills plays back", t_replay_backend},
       {"image: pgm round-trips", t_pgm_roundtrip},

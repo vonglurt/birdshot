@@ -34,7 +34,9 @@ namespace {
 struct AvfShared {
   std::mutex mu;
   std::condition_variable cv;
-  Gray8 latest;  // luma at the camera's delivered size
+  Gray8 latest;                  // luma at the camera's delivered size
+  std::vector<uint8_t> cbcr;     // interleaved CbCr, half resolution (420f plane 1)
+  int cw = 0, ch = 0;
   uint64_t gen = 0;
 };
 
@@ -58,12 +60,24 @@ struct AvfShared {
   const size_t h = CVPixelBufferGetHeightOfPlane(buf, 0);
   const size_t stride = CVPixelBufferGetBytesPerRowOfPlane(buf, 0);
   const auto* base = static_cast<const uint8_t*>(CVPixelBufferGetBaseAddressOfPlane(buf, 0));
+  const size_t cw = CVPixelBufferGetWidthOfPlane(buf, 1);
+  const size_t chh = CVPixelBufferGetHeightOfPlane(buf, 1);
+  const size_t cstride = CVPixelBufferGetBytesPerRowOfPlane(buf, 1);
+  const auto* cbase = static_cast<const uint8_t*>(CVPixelBufferGetBaseAddressOfPlane(buf, 1));
   if (base && w > 0 && h > 0) {
     std::lock_guard<std::mutex> lock(shared->mu);
     shared->latest = bs::Gray8(static_cast<int>(w), static_cast<int>(h));
     for (size_t row = 0; row < h; ++row)
       std::copy(base + row * stride, base + row * stride + w,
                 shared->latest.px.begin() + static_cast<long>(row * w));
+    if (cbase && cw > 0 && chh > 0) {
+      shared->cw = static_cast<int>(cw);
+      shared->ch = static_cast<int>(chh);
+      shared->cbcr.resize(cw * chh * 2);
+      for (size_t row = 0; row < chh; ++row)
+        std::copy(cbase + row * cstride, cbase + row * cstride + cw * 2,
+                  shared->cbcr.begin() + static_cast<long>(row * cw * 2));
+    }
     ++shared->gen;
   }
   CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
@@ -181,6 +195,8 @@ class AvfBackend : public Backend {
     frame.ts = duration<double>(system_clock::now().time_since_epoch()).count();
 
     Gray8 native;
+    std::vector<uint8_t> cbcr;
+    int cw = 0, ch = 0;
     {
       std::unique_lock<std::mutex> lock(shared_->mu);
       const uint64_t seen = shared_->gen;
@@ -195,6 +211,32 @@ class AvfBackend : public Backend {
         return frame;
       }
       native = shared_->latest;
+      cbcr = shared_->cbcr;
+      cw = shared_->cw;
+      ch = shared_->ch;
+    }
+
+    // Full colour from the 420f planes: what the person keeps should look
+    // like what the camera saw. Analysis stays on the luma.
+    if (!cbcr.empty() && cw > 0 && ch > 0) {
+      Rgb8 color(native.w, native.h);
+      for (int y = 0; y < native.h; ++y) {
+        const int cy = std::min(ch - 1, y / 2);
+        for (int x = 0; x < native.w; ++x) {
+          const int cx = std::min(cw - 1, x / 2);
+          const double Y = native.at(x, y);
+          const double Cb = cbcr[(static_cast<size_t>(cy) * cw + cx) * 2] - 128.0;
+          const double Cr = cbcr[(static_cast<size_t>(cy) * cw + cx) * 2 + 1] - 128.0;
+          uint8_t* p = color.at(x, y);
+          const auto clip = [](double v) {
+            return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v + 0.5);
+          };
+          p[0] = clip(Y + 1.402 * Cr);
+          p[1] = clip(Y - 0.344136 * Cb - 0.714136 * Cr);
+          p[2] = clip(Y + 1.772 * Cb);
+        }
+      }
+      frame.color = std::move(color);
     }
 
     // Letterbox to the shared analysis geometry: scale to fit, centre,

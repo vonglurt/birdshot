@@ -106,3 +106,40 @@ Gray8 letterbox(const Gray8& src, int w, int h) {
   return out;
 }
 }  // namespace bs
+
+namespace bs {
+
+Gray8 to_luma(const Rgb8& rgb) {
+  Gray8 out(rgb.w, rgb.h);
+  for (int y = 0; y < rgb.h; ++y)
+    for (int x = 0; x < rgb.w; ++x) {
+      const uint8_t* p = rgb.at(x, y);
+      out.at(x, y) =
+          static_cast<uint8_t>((77 * p[0] + 150 * p[1] + 29 * p[2] + 128) >> 8);
+    }
+  return out;
+}
+
+Rgb8 letterbox(const Rgb8& src, int w, int h) {
+  Rgb8 out(w, h);
+  if (src.empty() || w <= 0 || h <= 0) return out;
+  const double scale =
+      std::min(static_cast<double>(w) / src.w, static_cast<double>(h) / src.h);
+  const int dw = std::max(1, static_cast<int>(src.w * scale));
+  const int dh = std::max(1, static_cast<int>(src.h * scale));
+  const int ox = (w - dw) / 2, oy = (h - dh) / 2;
+  for (int y = 0; y < dh; ++y) {
+    const int sy = std::min(src.h - 1, static_cast<int>(y / scale));
+    for (int x = 0; x < dw; ++x) {
+      const int sx = std::min(src.w - 1, static_cast<int>(x / scale));
+      const uint8_t* s = src.at(sx, sy);
+      uint8_t* d = out.at(ox + x, oy + y);
+      d[0] = s[0];
+      d[1] = s[1];
+      d[2] = s[2];
+    }
+  }
+  return out;
+}
+
+}  // namespace bs

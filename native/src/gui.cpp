@@ -346,8 +346,14 @@ void Viewfinder::on_frame(const Frame& frame, const FrameStats& st, const Exposu
   }
   status["solar"] = solar;
 
+  const int quality = static_cast<int>(cfg_.num("gui_jpeg_quality", 85));
   std::vector<uint8_t> jpg =
-      encode_jpeg(frame.y, static_cast<int>(cfg_.num("gui_jpeg_quality", 85)));
+      frame.color.empty()
+          ? encode_jpeg(frame.y, quality)
+          : encode_jpeg(frame.color.w == frame.y.w && frame.color.h == frame.y.h
+                            ? frame.color
+                            : letterbox(frame.color, frame.y.w, frame.y.h),
+                        quality);
   {
     std::lock_guard<std::mutex> lock(mu_);
     jpeg_ = std::move(jpg);

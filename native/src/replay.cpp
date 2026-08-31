@@ -52,22 +52,24 @@ class ReplayBackend : public Backend {
     // footage was shot teaches nothing about the gates.
     std::this_thread::sleep_for(milliseconds(40));
 
-    Gray8 native;
+    Rgb8 color;
     for (size_t tries = 0; tries < files_.size(); ++tries) {
       const std::string& path = files_[next_++ % files_.size()];
-      if (read_jpeg(path, &native) && !native.empty()) break;
+      if (read_jpeg(path, &color) && !color.empty()) break;
       if (!warned_) {
         std::fprintf(stderr, "replay: %s did not decode (baseline JPEG only)\n", path.c_str());
         warned_ = true;
       }
-      native = Gray8();
+      color = Rgb8();
     }
-    if (native.empty()) {
+    if (color.empty()) {
       frame.y = Gray8(640, 480, 0);
       return frame;
     }
+    Gray8 native = to_luma(color);
     frame.y = (native.w == 640 && native.h == 480) ? native : letterbox(native, 640, 480);
     if (native.w != 640 || native.h != 480) frame.full = std::move(native);
+    frame.color = std::move(color);
     return frame;
   }
 

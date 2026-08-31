@@ -140,6 +140,11 @@ void CaptureController::deliver(const bs::Frame& frame, const bs::FrameStats& st
   FramePacket p;
   p.y = std::make_shared<bs::Gray8>(frame.y);
   if (!frame.full.empty()) p.full = std::make_shared<bs::Gray8>(frame.full);
+  if (!frame.color.empty())
+    p.color = std::make_shared<bs::Rgb8>(
+        frame.color.w == frame.y.w && frame.color.h == frame.y.h
+            ? frame.color
+            : bs::letterbox(frame.color, frame.y.w, frame.y.h));
   p.stats = st;
   p.exposureUs = frame.exposure_us;
   p.gain = frame.gain;

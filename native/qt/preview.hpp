@@ -47,7 +47,8 @@ class PreviewWidget : public QWidget {
   double skyZoneFrac = 0.40;
   double peakThreshold = 28.0;
 
-  void setFrame(const bs::Gray8& y, const bs::FrameStats& stats);
+  void setFrame(const bs::Gray8& y, const bs::FrameStats& stats,
+                const bs::Rgb8* color = nullptr);
   void setHud(const HudInfo& hud);
   void setBanner(const QString& text);
   void setBird(const QRect& bboxLuma, const QString& label, bool take, double ttlS = 1.6);
@@ -67,7 +68,9 @@ class PreviewWidget : public QWidget {
 
  private:
   QRect targetRect() const;
-  QImage renderFrame(const bs::Gray8& y) const;  // outdoor / zebra / peaking baked in
+  // The display image: the colour plane when one exists, greyscale luma
+  // otherwise, with outdoor / zebra / peaking baked into the pixels.
+  QImage renderFrame(const bs::Gray8& y, const bs::Rgb8* color) const;
 
   QImage image_;
   bs::FrameStats stats_;

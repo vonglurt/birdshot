@@ -32,7 +32,7 @@ help:
 	@echo '  make build          compile the native line (cmake, Release)'
 	@echo '  make run            build + open the GUI (Qt front end; browser viewfinder without Qt)'
 	@echo '  make doctor         native doctor: deps, cameras, storage'
-	@echo '  make selftest       the native selftest, 33 checks, no hardware needed'
+	@echo '  make selftest       the native selftest, 34 checks, no hardware needed'
 	@echo '  make info           native info: backend, site, storage'
 	@echo '  make dist           stage the native binary into dist/'
 	@echo

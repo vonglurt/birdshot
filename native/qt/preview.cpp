@@ -59,8 +59,9 @@ void PreviewWidget::copyViewSettings(const PreviewWidget& o) {
 // Build the display image from the luma plane: greyscale RGB with the
 // outdoor rendering, zebras and peaking baked into the pixels, exactly as
 // the prototype burned them into its numpy buffer.
-QImage PreviewWidget::renderFrame(const bs::Gray8& y) const {
+QImage PreviewWidget::renderFrame(const bs::Gray8& y, const bs::Rgb8* color) const {
   const int w = y.w, h = y.h;
+  const bool colored = color && color->w == w && color->h == h;
   QImage img(w, h, QImage::Format_RGB888);
 
   if (outdoor) {
@@ -119,7 +120,13 @@ QImage PreviewWidget::renderFrame(const bs::Gray8& y) const {
       uchar* line = img.scanLine(r);
       for (int c = 0; c < w; ++c) {
         const uchar v = y.at(c, r);
-        uchar rr = v, gg = v, bb = v;
+        uchar rr, gg, bb;
+        if (colored) {
+          const uint8_t* p = color->at(c, r);
+          rr = p[0]; gg = p[1]; bb = p[2];
+        } else {
+          rr = gg = bb = v;
+        }
         if (showZebra && v >= 250 && ((r + c) / 6) % 2 == 0) {
           rr = 255; gg = 0; bb = 255;  // ZEBRA_COLOR
         }
@@ -146,11 +153,12 @@ QImage PreviewWidget::renderFrame(const bs::Gray8& y) const {
   return img;
 }
 
-void PreviewWidget::setFrame(const bs::Gray8& y, const bs::FrameStats& stats) {
+void PreviewWidget::setFrame(const bs::Gray8& y, const bs::FrameStats& stats,
+                             const bs::Rgb8* color) {
   if (y.empty()) return;
   srcW_ = y.w;
   srcH_ = y.h;
-  image_ = renderFrame(y);
+  image_ = renderFrame(y, color);
   stats_ = stats;
   haveStats_ = true;
   banner_.clear();
