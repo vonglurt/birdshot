@@ -1,0 +1,16 @@
+Source: birdshot-native
+Section: graphics
+Priority: optional
+Maintainer: Paul Richeson <ports@birdshot.org>
+Build-Depends: debhelper-compat (= 13), cmake (>= 3.16)
+Standards-Version: 4.6.2
+Homepage: https://birdshot.org
+
+Package: birdshot-native
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: bird and sky capture with solar planning (native line)
+ The native (C++17) line of birdshot: the capture engine, EV-space PID
+ auto-exposure, quality gates, Bird Flight detection, and the Horizons
+ tools -- solar ephemeris, sunset shoot planning, multi-day alignment
+ of photographs. No runtime dependencies.

@@ -53,3 +53,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+
+  # The native line: build, selftest and attach one static binary per
+  # platform. Runs on every v* tag alongside the Python artifacts; the
+  # selftest gates the upload the same way `make check` gates the wheel.
+  native:
+    needs: build-and-attach
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: birdshot-linux-x86_64
+          - os: macos-latest
+            artifact: birdshot-macos-arm64
+          - os: windows-latest
+            artifact: birdshot-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: |
+          cmake -S native -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+      - name: selftest and stage (unix)
+        if: runner.os != 'Windows'
+        run: |
+          build/birdshot selftest
+          cp build/birdshot "${{ matrix.artifact }}"
+      - name: selftest and stage (windows)
+        if: runner.os == 'Windows'
+        run: |
+          build/Release/birdshot.exe selftest
+          cp build/Release/birdshot.exe "${{ matrix.artifact }}"
+      - name: attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "${{ matrix.artifact }}" --clobber

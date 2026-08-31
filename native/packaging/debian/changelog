@@ -1,0 +1,7 @@
+birdshot-native (2.0.0~rc1-1) unstable; urgency=medium
+
+  * First native release candidate: the full pipeline rewritten in C++17
+    with zero dependencies, plus the Horizons tools (ephemeris, planning,
+    multi-day alignment).
+
+ -- Paul Richeson <ports@birdshot.org>  Sun, 30 Aug 2026 20:00:00 +0000

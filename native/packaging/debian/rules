@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+%:
+	dh $@ --buildsystem=cmake --sourcedirectory=native
+
+override_dh_auto_test:
+	obj-*/birdshot selftest

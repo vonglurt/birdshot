@@ -38,3 +38,6 @@ settings.json
 assets/**/*.jpg
 assets/**/*.jpeg
 !assets/screenshots/*.png
+
+# clangd index cache (native tree)
+.cache/

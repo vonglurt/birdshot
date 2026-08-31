@@ -18,6 +18,15 @@ to the Mac over the network.
 > physical testing has not been completed and the screenshots below are not yet
 > taken — see [CHANGELOG.md](CHANGELOG.md). The software itself is in use.
 
+> **The native line.** [`native/`](native/README.md) is `2.0.0-rc1`
+> ("Migration"): the same pipeline rewritten in dependency-free C++17 —
+> one static binary for macOS, Windows, Linux and the BSDs, roughly an
+> order of magnitude faster through the identical metering/AE/gates path,
+> and carrying the Horizons layer (solar ephemeris, sunset shoot planning,
+> multi-day alignment) that this line only had on paper. Headless parity
+> today; the GUI and the platform camera backends are the 2.0.0 work.
+> This Python tree remains the deployed instrument on the Pi.
+
 ---
 
 ## What the hardware actually is

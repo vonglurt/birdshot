@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# The native line's gate: build and selftest on every platform the packaging
+# channels ship to, on every push that touches the tree. FreeBSD rides the
+# vmactions runner so the BSD build cannot rot silently between releases.
+
+name: native
+
+on:
+  push:
+    paths: ['native/**', '.github/workflows/native.yml']
+  pull_request:
+    paths: ['native/**', '.github/workflows/native.yml']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S native -B build -DCMAKE_BUILD_TYPE=Release
+      - name: build
+        run: cmake --build build --config Release
+      - name: selftest (unix)
+        if: runner.os != 'Windows'
+        run: build/birdshot selftest
+      - name: selftest (windows)
+        if: runner.os == 'Windows'
+        run: build/Release/birdshot.exe selftest
+
+  freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: pkg install -y cmake
+          run: |
+            cmake -S native -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build
+            build/birdshot selftest

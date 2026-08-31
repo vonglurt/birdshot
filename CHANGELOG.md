@@ -6,6 +6,43 @@ Notable changes to birdshot. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). The version string lives in
 `src/birdshot/__init__.py` as `__version__`.
 
+## [2.0.0-rc1] — 2026-08-30 — "Migration" (the native line)
+
+The pipeline rewritten in C++17 under `native/`: no Python, no runtime, no
+third-party code — the math kit, the NOAA solar ephemeris, the JSON and the
+baseline JPEG encoder are all in-tree. One CMake build targets macOS,
+Windows, Linux and the BSDs; `native/packaging/` carries the Flatpak, deb,
+rpm, Homebrew and FreeBSD channels and `.github/workflows/native.yml` holds
+every platform to a green build and selftest.
+
+- **Behavioural parity, headless** — the EV-space PID (feed-forward,
+  highlight priority, fast-acquire, constrained-equilibrium settling, the
+  shutter/gain ladder), the quality gates and focus measures, Bird Flight's
+  full gate ladder, `s<N>`/`ms<N>`/`us<N>` buckets, centisecond names with
+  `O_EXCL` claims and `.part` renames, `index.jsonl`, the same
+  `settings.json` keys with the same deep-merge. Measured on a laptop:
+  RAPID ~475 fps, COLLECT ~190 fps through the identical pipeline.
+- **Horizons ships** — the design review became code: `birdshot sun`
+  (position + the day's events, sunset to ±1 min), `birdshot plan`
+  (per-evening sunset time/azimuth/drift, descent rate, the 3.3–3.9 min
+  lower-limb contact window, golden hour, and whether the lens FOV holds
+  the seasonal azimuth swing from a fixed mount), `birdshot align` (frames
+  from different days paired by solar elevation rather than clock time,
+  with a pixel-shift refiner), `birdshot site`, WGS84 geodesy throughout.
+- **A site-aware synthetic backend** — its sky is lit from the real solar
+  elevation at the configured coordinates, so the whole pipeline exercises
+  honestly anywhere, at any hour, down to a moonlit floor.
+- **A 29-check selftest** (`birdshot selftest`, wired into ctest) covering
+  naming, JSON, stats, geodesy, the validated ephemeris numbers, the
+  ladder, PID convergence, the gates, the JPEG stream, storage, Bird
+  Flight, planning, alignment and three end-to-end engine runs.
+- **Not in the RC, stated plainly**: the GUI (the four faces stay 1.x
+  PyQt5 for now), platform camera backends (the interface is final; V4L2 /
+  AVFoundation / Media Foundation / libcamera are the 2.0.0 ports), the
+  cascade, EXIF injection and ffmpeg assembly. `native/README.md` carries
+  the full accounting and the release rule: no 2.0.0 final until a real
+  camera backend has captured real frames on real hardware.
+
 ## [Unreleased]
 
 - **Settings profiles** — save a whole setup (camera, exposure, gates,

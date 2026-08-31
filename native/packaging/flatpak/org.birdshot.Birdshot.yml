@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Paul Richeson
+#
+# Flatpak manifest for the native line. The binary is static and dependency
+# free, so the sandbox needs nothing beyond the freedesktop runtime; the
+# filesystem grant is the data root the capture engine writes.
+app-id: org.birdshot.Birdshot
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: birdshot
+finish-args:
+  - --filesystem=home/birdshot-data:create
+  - --filesystem=xdg-config/birdshot:create
+modules:
+  - name: birdshot
+    buildsystem: cmake-ninja
+    subdir: native
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+    post-install:
+      - install -Dm644 ../packaging/share/birdshot.desktop
+        /app/share/applications/org.birdshot.Birdshot.desktop
+    sources:
+      - type: git
+        url: https://github.com/vonglurt/birdshot.git
+        tag: v2.0.0-rc1
