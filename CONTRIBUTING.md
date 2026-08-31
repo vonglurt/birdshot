@@ -60,7 +60,7 @@ git rebase --exec 'git commit --amend --no-edit -S' origin/main
 
 ### 2. `vendor/` is the only place foreign code may live
 
-`src/`, `bin/`, `mac/` and `docs/` are Paul Richeson's work exclusively and are
+`prototype/src/`, `prototype/bin/`, `prototype/mac/` and `docs/` are Paul Richeson's work exclusively and are
 MIT throughout. A commit that puts somebody else's code in any of them is wrong
 *even when the licence is compatible*, because the question that layout answers
 is "whose is it?", not "may we use it?".
@@ -72,7 +72,7 @@ verbatim `LICENSE`, `MANIFEST.sha256`, and a row in
 **Do not add a dependency casually.** Every import is something an operator has
 to install on a Pi over a slow link, and one of the five current ones is already
 a licence problem (PyQt5 is GPL — see [THIRD-PARTY.md](THIRD-PARTY.md)). New
-GPL dependencies outside `src/birdshot/gui/` will be refused: the headless path
+GPL dependencies outside `prototype/src/birdshot/gui/` will be refused: the headless path
 being free of copyleft is a property worth keeping.
 
 ### 3. Nothing about your machine enters the repository
@@ -91,11 +91,11 @@ that is not `/home/pi`, a personal `/media/` mount, private key material, or a
 capture/log file. It is not a style check — it is the thing standing between a
 convenient hardcoded address and a permanent public record of your network.
 
-Deployment targets belong in environment variables, which is how `sync.sh`
+Deployment targets belong in environment variables, which is how `prototype/sync.sh`
 already does it:
 
 ```sh
-PI_HOST=pi@raspberrypi.local REMOTE_DIR=/home/pi/birdshot ./sync.sh push
+PI_HOST=pi@raspberrypi.local REMOTE_DIR=/home/pi/birdshot ./prototype/sync.sh push
 ```
 
 If you must bypass the hook — a history document that has to name the old
@@ -128,12 +128,12 @@ history has been rewritten.
 nothing private leaked. The real test needs the camera:
 
 ```sh
-make selftest        # ./sync.sh selftest — 18 checks against real hardware
+make prototype-selftest   # prototype/sync.sh selftest — 18 checks against real hardware
 ```
 
 It exercises naming, the quality gates, the exposure ladder, PID convergence,
 storage layout, YUV conversion, the live camera, ffmpeg and Qt. **Run it after
-any change to `src/birdshot/`,** and say in the pull request whether you did.
+any change to `prototype/src/birdshot/`,** and say in the pull request whether you did.
 "I could not, I have no CM4" is a perfectly acceptable answer and much better
 than silence — it tells the maintainer what still needs checking.
 

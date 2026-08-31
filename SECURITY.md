@@ -20,12 +20,12 @@ opens no port and serves no request. Its exposure is entirely in what it
 
 | Surface | Notes |
 |---|---|
-| `sync.sh`, `mac/pull-photos.sh` | Drive `ssh` and `rsync` to the Pi using **your** keys and agent. They run whatever `PI_HOST` says. Setting `PI_HOST` from an untrusted source is remote command execution on your Mac, by design — it is a deployment script, not a sandbox. |
-| `src/birdshot/cascade.py` remote tiers | A cascade tier may be `user@host:/path`. Paths are quoted before interpolation into the remote command, but the tier list is trusted input: it comes from your own config. Do not accept one from anyone else. |
+| `prototype/sync.sh`, `prototype/mac/pull-photos.sh` | Drive `ssh` and `rsync` to the Pi using **your** keys and agent. They run whatever `PI_HOST` says. Setting `PI_HOST` from an untrusted source is remote command execution on your Mac, by design — it is a deployment script, not a sandbox. |
+| `prototype/src/birdshot/cascade.py` remote tiers | A cascade tier may be `user@host:/path`. Paths are quoted before interpolation into the remote command, but the tier list is trusted input: it comes from your own config. Do not accept one from anyone else. |
 | `~/.config/birdshot/settings.json` | Plain JSON, mode 0644 by default. Holds paths and capture parameters. **No credentials** — SSH auth is your agent's business and birdshot never handles a key or a password. |
 | Captured frames + `index.jsonl` | The real disclosure risk, and it is not a code defect. See below. |
-| `bin/birdshot-wallpaper` | Writes the live view to the Pi's desktop wallpaper. Anyone who can see the screen sees the camera. Obvious, and easy to forget when the Pi is on a shared display. |
-| EXIF tagging (`src/birdshot/exif.py`) | Writes capture parameters into the JPEG. It writes **no GPS tags** and never has. If you add them, understand you are stamping your address into every frame you publish. |
+| `prototype/bin/birdshot-wallpaper` | Writes the live view to the Pi's desktop wallpaper. Anyone who can see the screen sees the camera. Obvious, and easy to forget when the Pi is on a shared display. |
+| EXIF tagging (`prototype/src/birdshot/exif.py`) | Writes capture parameters into the JPEG. It writes **no GPS tags** and never has. If you add them, understand you are stamping your address into every frame you publish. |
 
 ## The thing most likely to hurt you
 
@@ -51,7 +51,7 @@ carries the timestamp even when the filename does not.
 
 - The Pi is assumed to be on a trusted LAN. **Do not port-forward it.** birdshot
   provides no authentication because it needs none where it is designed to run.
-- Prefer key-based SSH with an agent. `sync.sh` sets `BatchMode=yes`, so it will
+- Prefer key-based SSH with an agent. `prototype/sync.sh` sets `BatchMode=yes`, so it will
   fail rather than fall back to prompting for a password.
 - `autowrite.yes` on a USB stick makes birdshot start capturing to that stick at
   boot with no interaction. That is the intended behaviour and it means **any
@@ -69,6 +69,6 @@ outside the capture root, exfiltrate frames, or cause the cascade to delete data
 that was never verified downstream.
 
 **Out of scope:** the Pi being unauthenticated on your own LAN (by design);
-`sync.sh` executing what `PI_HOST` tells it to (that is its job); physical
+`prototype/sync.sh` executing what `PI_HOST` tells it to (that is its job); physical
 access to the Pi or the USB stick; and the operator publishing their own
 photographs.

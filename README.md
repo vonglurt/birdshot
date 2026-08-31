@@ -146,8 +146,8 @@ Mac can never pick up a half-written JPEG.
 From the Mac, in this directory:
 
 ```bash
-./sync.sh deploy          # push, install launcher, run the selftest
-./sync.sh gui             # start the GUI on the Pi's display
+./prototype/sync.sh deploy          # push, install launcher, run the selftest
+./prototype/sync.sh gui             # start the GUI on the Pi's display
 ```
 
 Then on the Pi's screen, work through the calibration wizard it offers on first
@@ -156,16 +156,16 @@ run (about a minute -- see below).
 ### Everyday commands
 
 ```bash
-./sync.sh watch                  # auto-push on every save while developing
-./sync.sh status                 # dry run: what each direction would change
-./sync.sh sync                   # two-way, newer file wins
-./sync.sh selftest               # verify the deployment against the real camera
-./sync.sh info                   # camera, modes, storage, calibration state
-./sync.sh logs                   # tail the GUI log
+./prototype/sync.sh watch                  # auto-push on every save while developing
+./prototype/sync.sh status                 # dry run: what each direction would change
+./prototype/sync.sh sync                   # two-way, newer file wins
+./prototype/sync.sh selftest               # verify the deployment against the real camera
+./prototype/sync.sh info                   # camera, modes, storage, calibration state
+./prototype/sync.sh logs                   # tail the GUI log
 
-./mac/pull-photos.sh watch       # keep pulling new frames to ~/birdshot-data
-./mac/pull-photos.sh live        # ... and print each file as it lands
-./mac/assemble.sh ~/birdshot-data/tlc-1730380000 --fps 60
+./prototype/mac/pull-photos.sh watch       # keep pulling new frames to ~/birdshot-data
+./prototype/mac/pull-photos.sh live        # ... and print each file as it lands
+./prototype/mac/assemble.sh ~/birdshot-data/tlc-1730380000 --fps 60
 ```
 
 `sync` is a convenience, not a conflict-resolving sync engine: it runs rsync
@@ -467,10 +467,10 @@ pointed at the tree" and useless for focus. Use the focus monitor for focus.
 ## Launchers and unattended operation
 
 ```bash
-./sync.sh install-launchers      # desktop icons + Pi menu entries
-./sync.sh install-autostart      # launch maximized at every login
-./sync.sh remove-autostart
-./sync.sh autowrite status       # is a marked stick present?
+./prototype/sync.sh install-launchers      # desktop icons + Pi menu entries
+./prototype/sync.sh install-autostart      # launch maximized at every login
+./prototype/sync.sh remove-autostart
+./prototype/sync.sh autowrite status       # is a marked stick present?
 ```
 
 `install-launchers` puts three icons on the Pi's desktop and two entries under
@@ -513,8 +513,8 @@ ignored -- a typo in an unattended config is otherwise invisible until you check
 the card and find it empty.
 
 ```bash
-./sync.sh autowrite enable /media/pi/ARCHIVE res=1 interval=15
-./sync.sh autowrite disable /media/pi/ARCHIVE
+./prototype/sync.sh autowrite enable /media/pi/ARCHIVE res=1 interval=15
+./prototype/sync.sh autowrite disable /media/pi/ARCHIVE
 ```
 
 ### Shutdown
@@ -668,9 +668,9 @@ RAM staging is still available for two legitimate reasons -- avoiding eMMC write
 wear, and eliminating disk jitter entirely:
 
 ```bash
-./sync.sh ramdisk on      # capture to /dev/shm/birdshot, copy out every 10 s
-./sync.sh ramdisk status
-./sync.sh ramdisk off
+./prototype/sync.sh ramdisk on      # capture to /dev/shm/birdshot, copy out every 10 s
+./prototype/sync.sh ramdisk status
+./prototype/sync.sh ramdisk off
 ```
 
 It sets delete-after-copy, because otherwise 1.9 GB of RAM fills and capture
@@ -716,7 +716,7 @@ the eMMC. Pulling to the Mac over gigabit is the faster path for bulk work.
 
 Capture at an interval (the Timelapse mode, or `birdshot-cli timelapse`), then assemble at
 60 fps. Assembly on the Pi is libx264 on four A72 cores and is slow for 12 MP
-frames; `mac/assemble.sh` does the same job on the Mac with identical frame
+frames; `prototype/mac/assemble.sh` does the same job on the Mac with identical frame
 selection, an order of magnitude faster.
 
 ---
@@ -725,25 +725,25 @@ selection, an order of magnitude faster.
 
 | File | |
 |---|---|
-| `src/birdshot/naming.py` | `s<N>`/`ms<N>`/`us<N>` folder naming, legacy-compatible |
-| `src/birdshot/config.py` | persisted settings, calibration, resume state |
-| `src/birdshot/analysis.py` | metering, quality gates, focus measures (numpy only, no OpenCV) |
-| `src/birdshot/exposure.py` | EV-space PID, lux feed-forward, shutter/gain ladder |
-| `src/birdshot/storage.py` | sessions, `index.jsonl`, background USB offload |
-| `src/birdshot/camera.py` | the capture engine (own thread, event callbacks) |
-| `src/birdshot/timelapse.py` | ffmpeg assembly and source selection |
-| `src/birdshot/autostart.py` | `autowrite.yes` detection and parsing |
-| `src/birdshot/cascade.py` | tiered storage: groups, migration, verification |
-| `src/birdshot/exif.py` | EXIF tagging as a preprocessing step |
-| `src/birdshot/gui/widgets.py` | accordion, mode dial, fullscreen preview, blocking overlay |
-| `src/birdshot/gui/faces.py` | the four faces: Camera, Field (gate ladder), Library, face bar |
-| `src/birdshot/tone.py` | ISP tone curve (the HQ-cam gamma) |
-| `src/birdshot/gui/` | PyQt5 front end, calibration wizard, focus monitor |
-| `bin/birdshot-gui` | GUI launcher (`--auto`, `--tab`, maximized by default) |
-| `bin/birdshot-cli` | headless control **and the selftest** |
-| `bin/birdshot-wallpaper` | desktop wallpaper monitor |
-| `sync.sh` | two-way source sync, deploy, remote control |
-| `mac/` | photo pull and Mac-side movie assembly |
+| `prototype/src/birdshot/naming.py` | `s<N>`/`ms<N>`/`us<N>` folder naming, legacy-compatible |
+| `prototype/src/birdshot/config.py` | persisted settings, calibration, resume state |
+| `prototype/src/birdshot/analysis.py` | metering, quality gates, focus measures (numpy only, no OpenCV) |
+| `prototype/src/birdshot/exposure.py` | EV-space PID, lux feed-forward, shutter/gain ladder |
+| `prototype/src/birdshot/storage.py` | sessions, `index.jsonl`, background USB offload |
+| `prototype/src/birdshot/camera.py` | the capture engine (own thread, event callbacks) |
+| `prototype/src/birdshot/timelapse.py` | ffmpeg assembly and source selection |
+| `prototype/src/birdshot/autostart.py` | `autowrite.yes` detection and parsing |
+| `prototype/src/birdshot/cascade.py` | tiered storage: groups, migration, verification |
+| `prototype/src/birdshot/exif.py` | EXIF tagging as a preprocessing step |
+| `prototype/src/birdshot/gui/widgets.py` | accordion, mode dial, fullscreen preview, blocking overlay |
+| `prototype/src/birdshot/gui/faces.py` | the four faces: Camera, Field (gate ladder), Library, face bar |
+| `prototype/src/birdshot/tone.py` | ISP tone curve (the HQ-cam gamma) |
+| `prototype/src/birdshot/gui/` | PyQt5 front end, calibration wizard, focus monitor |
+| `prototype/bin/birdshot-gui` | GUI launcher (`--auto`, `--tab`, maximized by default) |
+| `prototype/bin/birdshot-cli` | headless control **and the selftest** |
+| `prototype/bin/birdshot-wallpaper` | desktop wallpaper monitor |
+| `prototype/sync.sh` | two-way source sync, deploy, remote control |
+| `prototype/mac/` | photo pull and Mac-side movie assembly |
 
 `birdshot-cli selftest` exercises naming, the gates, the exposure ladder, PID
 convergence, storage layout, YUV conversion, the live camera, ffmpeg and Qt.
@@ -756,7 +756,7 @@ Run it after any change.
 MIT — Copyright (c) 2026 Paul Richeson. See [LICENSE](LICENSE). Every source
 file carries an `SPDX-License-Identifier: MIT` header.
 
-**Nothing in this repository is anyone else's code.** `src/`, `bin/`, `mac/`
+**Nothing in this repository is anyone else's code.** `prototype/src/`, `prototype/bin/`, `prototype/mac/`
 and `docs/` are original work; `vendor/` — where foreign code would have to
 live — is empty by design, and [vendor/README.md](vendor/README.md) explains
 the rule that keeps it that way.
@@ -765,7 +765,7 @@ birdshot's *dependencies* are another matter, and one of them is not permissive:
 **PyQt5 is GPL-3.0 or commercial.** That does not affect cloning, running or
 redistributing this source, but it does govern shipping an image or bundle
 containing both birdshot and PyQt5. The GPL surface is confined to
-`src/birdshot/gui/`, so the entire headless path is copyleft-free.
+`prototype/src/birdshot/gui/`, so the entire headless path is copyleft-free.
 [THIRD-PARTY.md](THIRD-PARTY.md) works through exactly what that means.
 
 ## Contributing

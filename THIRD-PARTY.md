@@ -2,7 +2,7 @@
 # Third-party software
 
 birdshot is MIT (see [LICENSE](LICENSE)). It carries **no third-party code in
-its own tree** — every file under `src/`, `bin/`, `mac/` and `docs/` is original
+its own tree** — every file under `prototype/src/`, `prototype/bin/`, `prototype/mac/` and `docs/` is original
 work by Paul Richeson, and `vendor/` is empty by design (see
 [vendor/README.md](vendor/README.md)).
 
@@ -40,14 +40,14 @@ is not unique to birdshot; it is recorded here because a maintainer who does not
 know it will eventually publish an image and get it wrong.
 
 **The mitigation is already in the architecture.** PyQt5 is confined to
-`src/birdshot/gui/` — six files. Verified, not assumed:
+`prototype/src/birdshot/gui/` — six files. Verified, not assumed:
 
 ```sh
 grep -rl PyQt5 --include='*.py' src bin
 ```
 
-returns `src/birdshot/gui/*` plus two false hits: `src/birdshot/__init__.py`
-mentions PyQt5 in a docstring, and `bin/birdshot-cli` imports it inside
+returns `prototype/src/birdshot/gui/*` plus two false hits: `prototype/src/birdshot/__init__.py`
+mentions PyQt5 in a docstring, and `prototype/bin/birdshot-cli` imports it inside
 `t_qt()`, a function body that only `birdshot-cli selftest` ever runs.
 Importing the CLI does not import Qt.
 
@@ -66,7 +66,7 @@ Python packages, installed by the operator with `pip3`/`apt`. None is vendored.
 
 | Package | Licence | How birdshot uses it | Copyleft? |
 |---|---|---|---|
-| **PyQt5** | GPL-3.0 **or** Riverbank Commercial | the on-Pi GUI — `src/birdshot/gui/` only | **yes — see above** |
+| **PyQt5** | GPL-3.0 **or** Riverbank Commercial | the on-Pi GUI — `prototype/src/birdshot/gui/` only | **yes — see above** |
 | **picamera2** | BSD-2-Clause | the capture engine; the sole camera interface | no |
 | **numpy** | BSD-3-Clause | metering, histograms, focus measures, tone curve | no |
 | **simplejpeg** | MIT (wraps libjpeg-turbo: IJG / BSD-3-Clause / zlib) | JPEG encode on the capture path | no |
@@ -85,18 +85,18 @@ does.
 
 | Program | Licence | Called from | Purpose |
 |---|---|---|---|
-| **ffmpeg** | LGPL-2.1-or-later, or GPL-2.0-or-later depending on build flags | `src/birdshot/timelapse.py` | assembling frames into a movie |
-| **rsync** | GPL-3.0-or-later | `src/birdshot/storage.py`, `src/birdshot/cascade.py`, `sync.sh`, `mac/pull-photos.sh` | offload and tier migration |
-| **OpenSSH** (`ssh`) | BSD-style | `src/birdshot/cascade.py`, `sync.sh` | remote tiers and deployment |
-| **xdg-open** | MIT (xdg-utils) | `src/birdshot/gui/main_window.py` | opening the capture folder |
-| desktop helpers (`pcmanfm`, `feh`, `gio`) | various | `bin/birdshot-wallpaper` | setting the desktop wallpaper |
+| **ffmpeg** | LGPL-2.1-or-later, or GPL-2.0-or-later depending on build flags | `prototype/src/birdshot/timelapse.py` | assembling frames into a movie |
+| **rsync** | GPL-3.0-or-later | `prototype/src/birdshot/storage.py`, `prototype/src/birdshot/cascade.py`, `prototype/sync.sh`, `prototype/mac/pull-photos.sh` | offload and tier migration |
+| **OpenSSH** (`ssh`) | BSD-style | `prototype/src/birdshot/cascade.py`, `prototype/sync.sh` | remote tiers and deployment |
+| **xdg-open** | MIT (xdg-utils) | `prototype/src/birdshot/gui/main_window.py` | opening the capture folder |
+| desktop helpers (`pcmanfm`, `feh`, `gio`) | various | `prototype/bin/birdshot-wallpaper` | setting the desktop wallpaper |
 
 None of these is required for capture except as noted; a missing `ffmpeg` costs
 you movie assembly and nothing else.
 
 ## Verifying this file
 
-It is a hand-maintained document and drifts if nobody checks it. `make deps`
+It is a hand-maintained document and drifts if nobody checks it. `make prototype-deps`
 lists every third-party import and every external binary the tree actually
 reaches for, so a new dependency that never made it into the table above shows
 up as a line here with no row to match it.

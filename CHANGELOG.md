@@ -45,6 +45,25 @@ every platform to a green build and selftest.
 
 ## [Unreleased]
 
+- **The Python line is now the prototype, and it is deprecated.** The whole
+  1.x tree — `src/`, `bin/`, `pyproject.toml`, `install.sh`, `sync.sh`,
+  `mac/`, `packaging/` — moved into `prototype/`, self-contained and
+  path-relative, so everything works from there exactly as it did from the
+  root (the Pi-side layout is unchanged; `prototype/sync.sh push` deploys
+  the same files to the same places). `prototype/README.md` states the
+  policy: bug fixes only, no new features, the tree retires when a native
+  camera backend shoots real frames.
+- **The compiled line owns the Makefile.** `make run`, `doctor`,
+  `selftest`, `info` and `dist` all mean the native binary now (`make
+  build` compiles it; `make run ARGS='plan --days 3'` passes arguments,
+  bare it prints the command list). `make check` is compiled-first: the
+  gate builds the native line and runs its 29-check selftest before the
+  lint/sanitise/vendor scans. The Python targets live on with a
+  `prototype-` prefix: `prototype`, `prototype-debug`, `prototype-doctor`,
+  `prototype-deps`, `prototype-dist`, `prototype-selftest`,
+  `prototype-info`. release.yml builds the wheel from `prototype/`;
+  artifacts and their names are unchanged. Explicit `birdshot help` now
+  exits 0; only the bad-invocation paths keep the nonzero usage exit.
 - **Settings profiles** — save a whole setup (camera, exposure, gates,
   mode — everything but the machine paths) under a name and activate it in
   one gesture: the profile row in Bench's header (save / new... / del,

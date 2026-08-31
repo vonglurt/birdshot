@@ -458,7 +458,10 @@ int main(int argc, char** argv) {
     std::printf("birdshot %s (%s)\n", kVersion, kCodename);
     return 0;
   }
-  if (cmd == "help" || cmd == "--help" || cmd == "-h") return usage();
+  if (cmd == "help" || cmd == "--help" || cmd == "-h") {
+    usage();  // asked-for help is a success, unlike the bad-invocation paths
+    return 0;
+  }
   if (cmd == "selftest") {
     return run_selftest(args.verbose) == 0 ? 0 : 1;
   }

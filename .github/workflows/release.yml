@@ -29,10 +29,12 @@ jobs:
       - name: gate
         run: make check
 
+      # The 1.x Python line, deprecated but still shipping until a native
+      # camera backend shoots real frames -- see prototype/README.md.
       - name: build sdist and wheel
         run: |
           python -m pip install --quiet build
-          python -m build
+          python -m build prototype --outdir dist
           sha256sum dist/*
 
       - name: ensure release exists

@@ -3,42 +3,62 @@
 #
 # birdshot -- IMX477 bird and sky capture for the Raspberry Pi CM4.
 #
+# The compiled 2.0 line under native/ owns the front door: `make run`,
+# `doctor`, `selftest`, `info` and `dist` all mean the native binary. The
+# 1.x Python line lives on, deprecated, under prototype/ -- every target
+# that touches it is prefixed `prototype-` (see prototype/README.md).
+#
 # Most of this Makefile runs on the Mac you develop on. The one target that
-# cannot is `selftest`, which needs the camera; it is driven over SSH.
+# cannot is `prototype-selftest`, which needs the camera; it is driven over
+# SSH.
 
 SHELL := /usr/bin/env bash
-PY_SRC := $(shell find src -name '*.py' 2>/dev/null)
-BIN_SRC := bin/birdshot-cli bin/birdshot-gui bin/birdshot-wallpaper
-SH_SRC := sync.sh install.sh $(wildcard mac/*.sh) .githooks/pre-commit
+NATIVE_BUILD := native/build
+PY_SRC := $(shell find prototype/src -name '*.py' 2>/dev/null)
+BIN_SRC := prototype/bin/birdshot-cli prototype/bin/birdshot-gui prototype/bin/birdshot-wallpaper
+SH_SRC := prototype/sync.sh prototype/install.sh $(wildcard prototype/mac/*.sh) .githooks/pre-commit
 
 .DEFAULT_GOAL := help
-.PHONY: help check lint sanitise audit-history deps vendor-check hooks dist doctor run rundebug selftest info clean
+.PHONY: help check lint sanitise audit-history vendor-check hooks \
+        build run doctor selftest info dist \
+        prototype prototype-debug prototype-doctor prototype-deps \
+        prototype-dist prototype-selftest prototype-info clean
 
 help:
 	@echo 'birdshot -- make targets'
 	@echo
-	@echo '  make check          lint + sanitise + vendor-check  (the pre-push gate)'
-	@echo '  make lint           byte-compile Python, parse every shell script'
+	@echo '  make check          the pre-push gate: build + selftest + lint + sanitise + vendor-check'
+	@echo '  make build          compile the native line (cmake, Release)'
+	@echo '  make run            build + run the native binary; ARGS= passes through'
+	@echo '  make doctor         native doctor: deps, cameras, storage'
+	@echo '  make selftest       the native selftest, 29 checks, no hardware needed'
+	@echo '  make info           native info: backend, site, storage'
+	@echo '  make dist           stage the native binary into dist/'
+	@echo
+	@echo '  make lint           byte-compile the prototype, parse every shell script'
 	@echo '  make sanitise       scan tracked files for un-publishable strings'
 	@echo '  make audit-history  scan every blob in every commit (slower, thorough)'
-	@echo '  make deps           list third-party imports and external binaries'
 	@echo '  make vendor-check   verify vendor/ manifests against their hashes'
 	@echo '  make hooks          install the sanitisation pre-commit hook'
-	@echo '  make dist           build the sdist + wheel every channel consumes'
-	@echo '  make doctor         check this machine: deps, cameras, storage'
-	@echo '  make run            launch the GUI from this checkout'
-	@echo '  make rundebug       GUI with profiling, Qt logging and Python dev mode'
 	@echo
-	@echo '  make selftest       run the on-camera selftest on the Pi (needs hardware)'
-	@echo '  make info           camera, modes, storage and calibration, from the Pi'
+	@echo '  the deprecated 1.x Python line, in prototype/:'
+	@echo '  make prototype           launch the Python GUI from this checkout'
+	@echo '  make prototype-debug     Python GUI with profiling, Qt logging, dev mode'
+	@echo '  make prototype-doctor    check this machine for the Python line'
+	@echo '  make prototype-deps      list third-party imports and external binaries'
+	@echo '  make prototype-dist      build the sdist + wheel the 1.x channels consume'
+	@echo '  make prototype-selftest  on-camera selftest on the Pi (needs hardware)'
+	@echo '  make prototype-info      camera, modes, storage and calibration, from the Pi'
 
 # ---------------------------------------------------------------- the gate --
-check: lint sanitise vendor-check
+# Compiled-first: the gate will not pass unless the native line builds and
+# its selftest is green, on this machine, right now.
+check: build selftest lint sanitise vendor-check
 	@echo
 	@echo 'check: PASS'
 
 lint:
-	@echo '== byte-compiling Python =='
+	@echo '== byte-compiling the Python prototype =='
 	@python3 -m py_compile $(PY_SRC) $(BIN_SRC)
 	@echo '   ok: $(words $(PY_SRC)) modules, $(words $(BIN_SRC)) scripts'
 	@echo '== parsing shell scripts =='
@@ -95,19 +115,6 @@ audit-history:
 	@git log --all --pretty=format: --name-only | sort -u | grep -v '^$$' \
 	  | sed -E 's/.*\.//' | sort | uniq -c | sort -rn | sed 's/^/   /'
 
-# Drift detector for THIRD-PARTY.md: anything listed here needs a row there.
-deps:
-	@echo '== third-party Python imports =='
-	@grep -rhoE '^[[:space:]]*(import|from) (numpy|picamera2|simplejpeg|piexif|PyQt5)' \
-	  --include='*.py' src bin | awk '{print $$2}' | sort | uniq -c | sed 's/^/   /'
-	@echo '== external binaries invoked =='
-	@grep -rhoE '"(ffmpeg|ffprobe|rsync|ssh|xdg-open|pcmanfm|feh|gio|exiftool)"' \
-	  --include='*.py' src bin | tr -d '"' | sort -u | sed 's/^/   /'
-	@echo '== GPL surface: files importing PyQt5 =='
-	@grep -rl PyQt5 --include='*.py' src bin | sed 's/^/   /'
-	@echo '   (everything outside src/birdshot/gui/ must be a docstring or a'
-	@echo '    function-local import -- see THIRD-PARTY.md)'
-
 vendor-check:
 	@echo '== vendor/ manifests =='
 	@if [ -z "$$(ls -A vendor 2>/dev/null | grep -v README.md)" ]; then \
@@ -132,43 +139,88 @@ hooks:
 	@git config core.hooksPath .githooks
 	@echo 'pre-commit sanitisation gate installed (core.hooksPath = .githooks)'
 
-# The canonical build (docs/PACKAGING.md, Phase 1): one sdist + wheel that
-# every packaging/ channel consumes. Needs `python3 -m pip install build`.
+# ------------------------------------------------------- the native line --
+# Needs only cmake and a C++17 compiler; the build directory is reused
+# across runs.
+build:
+	@cmake -S native -B $(NATIVE_BUILD) -DCMAKE_BUILD_TYPE=Release
+	@cmake --build $(NATIVE_BUILD) --config Release
+
+# With no ARGS the binary prints its command list -- that is the front door
+# of a CLI. `make run ARGS='plan --days 3'` runs a real command.
+run: build
+	@$(NATIVE_BUILD)/birdshot $(if $(ARGS),$(ARGS),help)
+
+doctor: build
+	@$(NATIVE_BUILD)/birdshot doctor
+
+selftest: build
+	@$(NATIVE_BUILD)/birdshot selftest
+
+info: build
+	@$(NATIVE_BUILD)/birdshot info
+
+# One binary is the distribution (docs/PACKAGING.md is the 1.x story; the
+# native channels live in native/packaging/). CI builds the per-platform
+# release artifacts; this stages this machine's.
 dist: check
-	@python3 -m build
+	@mkdir -p dist
+	@cp $(NATIVE_BUILD)/birdshot dist/
 	@ls -la dist
 
-doctor:
-	@./bin/birdshot-cli doctor
+# ---------------------------------------------- the 1.x Python prototype --
+# Deprecated: bug fixes only, no new features. See prototype/README.md.
+prototype-doctor:
+	@./prototype/bin/birdshot-cli doctor
 
-# Launch the app from the checkout. On a machine without the camera stack
-# (a Mac today -- the backend split in docs/ROADMAP.md is what changes that)
-# this fails fast and points at doctor instead of a bare traceback.
-run:
-	@python3 bin/birdshot-gui || \
+# Launch the Python GUI from the checkout. On a machine without the camera
+# stack (a Mac today) this fails fast and points at prototype-doctor instead
+# of a bare traceback.
+prototype:
+	@python3 prototype/bin/birdshot-gui || \
 	  { st=$$?; echo; \
-	    echo "launch failed -- 'make doctor' lists what this machine is missing"; \
+	    echo "launch failed -- 'make prototype-doctor' lists what this machine is missing"; \
 	    exit $$st; }
 
 # Same launch, loud: BIRDSHOT_PROFILE turns on the engine's per-frame timing
 # report, -X dev enables Python's debug checks and full warnings, and the Qt
 # platform layer logs what it is doing. Windowed, so the terminal stays
 # visible next to it.
-rundebug:
+prototype-debug:
 	@BIRDSHOT_PROFILE=1 QT_LOGGING_RULES='qt.qpa.*=true' \
-	  python3 -X dev -W default bin/birdshot-gui --no-maximize || \
+	  python3 -X dev -W default prototype/bin/birdshot-gui --no-maximize || \
 	  { st=$$?; echo; \
-	    echo "launch failed -- 'make doctor' lists what this machine is missing"; \
+	    echo "launch failed -- 'make prototype-doctor' lists what this machine is missing"; \
 	    exit $$st; }
 
-# ------------------------------------------------------------ the hardware --
-selftest:
-	@./sync.sh selftest
+# Drift detector for THIRD-PARTY.md: anything listed here needs a row there.
+prototype-deps:
+	@echo '== third-party Python imports =='
+	@grep -rhoE '^[[:space:]]*(import|from) (numpy|picamera2|simplejpeg|piexif|PyQt5)' \
+	  --include='*.py' prototype/src prototype/bin | awk '{print $$2}' | sort | uniq -c | sed 's/^/   /'
+	@echo '== external binaries invoked =='
+	@grep -rhoE '"(ffmpeg|ffprobe|rsync|ssh|xdg-open|pcmanfm|feh|gio|exiftool)"' \
+	  --include='*.py' prototype/src prototype/bin | tr -d '"' | sort -u | sed 's/^/   /'
+	@echo '== GPL surface: files importing PyQt5 =='
+	@grep -rl PyQt5 --include='*.py' prototype/src prototype/bin | sed 's/^/   /'
+	@echo '   (everything outside prototype/src/birdshot/gui/ must be a docstring or a'
+	@echo '    function-local import -- see THIRD-PARTY.md)'
 
-info:
-	@./sync.sh info
+# The canonical 1.x build (docs/PACKAGING.md, Phase 1): one sdist + wheel
+# that the 1.x packaging/ channels consume. Needs `pip install build`.
+prototype-dist: check
+	@python3 -m build prototype --outdir prototype/dist
+	@ls -la prototype/dist
+
+# ------------------------------------------------------------ the hardware --
+prototype-selftest:
+	@./prototype/sync.sh selftest
+
+prototype-info:
+	@./prototype/sync.sh info
 
 clean:
+	@rm -rf $(NATIVE_BUILD) dist
 	@find . -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 	@find . -name '*.pyc' -delete 2>/dev/null || true
 	@rm -f .audit-blobs
