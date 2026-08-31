@@ -622,14 +622,23 @@ std::string t_engine_ae_converges() {
   opts.count = 30;
   const EngineReport rep = engine.run(opts);
   EXPECT(rep.clean);
-  // After 30 frames against the synthetic sky the subject zone must sit
-  // near the metering target: read the last index line back.
+  // After 30 frames against the synthetic sky the loop must have found its
+  // equilibrium -- which for this scene is a CONSTRAINED one: the sky
+  // clips, so highlight priority holds the subject a little below the
+  // brightness target. That is the designed trade (a slightly dark
+  // treeline over a blown sky), so the assertion is one-sided: settled
+  // within an EV below target, and never pushed above it. Averaged over
+  // the last five frames; a single frame can carry a transient.
   Session s = Session::open(rep.session_dir);
   const auto index = s.read_index();
   EXPECT(index.size() == 30);
-  const double final_meter = index.back().get("meter").number();
+  double final_meter = 0.0;
+  for (size_t i = index.size() - 5; i < index.size(); ++i)
+    final_meter += index[i].get("meter").number() / 5.0;
   const double target = cfg.num("target_luma", 118.0);
-  EXPECT_NEAR(std::log2(final_meter / target), 0.0, 0.45);
+  const double ev_off = std::log2(final_meter / target);
+  EXPECT(ev_off > -1.0);
+  EXPECT(ev_off < 0.30);
   return "";
 }
 

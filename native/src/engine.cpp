@@ -189,9 +189,14 @@ EngineReport Engine::run(const EngineOptions& opts) {
       session.append_index(rec);
     }
 
-    // AE: given how that frame came out, decide the next one.
+    // AE: given how that frame came out, decide the next one. The clock
+    // handed to the controller is frame cadence, not wall time: the PID
+    // gains were tuned at the 1.x line's 3-4 fps (dt ~ 0.25 s), and feeding
+    // real dt at this engine's hundreds of fps makes the derivative term
+    // amplify per-frame metering noise by two orders of magnitude.
     if (auto_exposure) {
-      const ExposureDecision d = ae.update(st, frame.exposure_us, frame.gain, frame.lux);
+      const ExposureDecision d =
+          ae.update(st, frame.exposure_us, frame.gain, frame.lux, seq * 0.25);
       exposure_us = d.exposure_us;
       gain = d.gain;
       if (opts.verbose)
