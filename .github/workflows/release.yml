@@ -87,6 +87,10 @@ jobs:
           build/Release/birdshot.exe selftest
           cp build/Release/birdshot.exe "${{ matrix.artifact }}"
       - name: attach
+        # bash everywhere: under the windows runner's default PowerShell,
+        # "${GITHUB_REF_NAME}" is a (n undefined) pwsh variable, not the env
+        # var, and the upload went looking for a release named "".
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${GITHUB_REF_NAME}" "${{ matrix.artifact }}" --clobber
