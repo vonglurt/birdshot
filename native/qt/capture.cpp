@@ -139,6 +139,7 @@ void CaptureController::deliver(const bs::Frame& frame, const bs::FrameStats& st
                                 const std::string& aeMode, bool settled, double fps) {
   FramePacket p;
   p.y = std::make_shared<bs::Gray8>(frame.y);
+  if (!frame.full.empty()) p.full = std::make_shared<bs::Gray8>(frame.full);
   p.stats = st;
   p.exposureUs = frame.exposure_us;
   p.gain = frame.gain;

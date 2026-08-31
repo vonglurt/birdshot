@@ -10,6 +10,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QScreen>
 #include <QCheckBox>
 #include <QCompleter>
 #include <QDesktopServices>
@@ -904,6 +905,34 @@ QWidget* MainWindow::tabScene() {
     blv->addWidget(lblSharpRef_);
     v->addWidget(blur);
 
+    auto* monitor = new QGroupBox(QStringLiteral("1:1 focus monitor"));
+    auto* mv = new QVBoxLayout(monitor);
+    auto* btnMonitor = new QPushButton(QStringLiteral("Open focus monitor"));
+    btnMonitor->setMinimumHeight(46);
+    btnMonitor->setStyleSheet("font-weight:600;");
+    connect(btnMonitor, &QPushButton::clicked, this, [this] {
+      if (focusMonitor_ && focusMonitor_->isVisible()) {
+        focusMonitor_->raise();
+        focusMonitor_->activateWindow();
+        return;
+      }
+      if (!focusMonitor_) focusMonitor_ = new FocusMonitor(this);
+      // Parked against the right edge, so it does not cover the preview.
+      if (QScreen* screen = QApplication::primaryScreen()) {
+        const QRect g = screen->availableGeometry();
+        focusMonitor_->move(g.right() - focusMonitor_->width() - 20, g.top() + 40);
+      }
+      focusMonitor_->show();
+      log(QStringLiteral("focus monitor open"));
+    });
+    mv->addWidget(btnMonitor);
+    auto* mNote = new QLabel(QStringLiteral(
+        "A frameless, always-on-top window showing real sensor pixels at\n100-400%, with "
+        "peaking and a peak-hold score. Turn the ring until\nthe number stops climbing."));
+    mNote->setStyleSheet("color:#888;");
+    mv->addWidget(mNote);
+    v->addWidget(monitor);
+
     auto* live = new QGroupBox(QStringLiteral("Live focus reading"));
     auto* lv = new QVBoxLayout(live);
     lblFocusLive_ = new QLabel(QStringLiteral("-"));
@@ -1473,6 +1502,7 @@ void MainWindow::onFrame(const FramePacket& p) {
   lastHud_ = hud;
   preview_->setHud(hud);
 
+  if (focusMonitor_ && focusMonitor_->isVisible()) focusMonitor_->handleFrame(p);
   if (fullscreenPreview_) {
     fullscreenPreview_->setFrame(*p.y, p.stats);
     fullscreenPreview_->setHud(hud);

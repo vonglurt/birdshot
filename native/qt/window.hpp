@@ -27,6 +27,7 @@
 #include <QTimer>
 
 #include "capture.hpp"
+#include "focusmonitor.hpp"
 #include "faces.hpp"
 #include "preview.hpp"
 #include "widgets.hpp"
@@ -152,6 +153,7 @@ class MainWindow : public QMainWindow {
   LibraryFace* faceLibrary_;
   BlockingOverlay* overlay_;
   FullscreenPreview* fullscreen_ = nullptr;
+  FocusMonitor* focusMonitor_ = nullptr;
   PreviewWidget* fullscreenPreview_ = nullptr;
   QString currentFace_ = QStringLiteral("bench");
   struct OverlayStash {
