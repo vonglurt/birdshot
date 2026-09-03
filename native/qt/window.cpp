@@ -1362,8 +1362,8 @@ void MainWindow::startEncode() {
 void MainWindow::refreshSunLabel() {
   if (!lblSun_) return;
   if (!cfg_.boolean("site_set", false)) {
-    lblSun_->setText(QStringLiteral("site not set -- doctor flags it, and sun/plan/align "
-                                    "refuse to guess"));
+    lblSun_->setText(QStringLiteral("site not set -- sun/plan/align refuse to guess; "
+                                    "set it here or with `birdshot site set`"));
     return;
   }
   const bs::Site site = cfg_.site();
@@ -2139,6 +2139,7 @@ void MainWindow::runDoctor() {
       bool ok;
       QString name;
       QString detail;
+      bool note = false;  // a choice not yet made, not a fault: never a FAIL
     };
     QList<DocRow> rows;
     rows << DocRow{true, QStringLiteral("version"),
@@ -2153,26 +2154,31 @@ void MainWindow::runDoctor() {
                        .arg(QString::fromStdString(root))
                        .arg(freeMb / 1024.0, 0, 'f', 1)};
     rows << DocRow{true, QStringLiteral("backend"), capture_->backendName()};
+    // The site is optional: capture and the synthetic scene run without one;
+    // only sun/plan/align need it. Unset is a note, not a failure.
     const bool site = cfg_.boolean("site_set", false);
-    rows << DocRow{site, QStringLiteral("site"),
+    rows << DocRow{true, QStringLiteral("site"),
                    site ? QStringLiteral("set")
-                        : QStringLiteral("not set -- sun/plan/align need `birdshot site set`")};
+                        : QStringLiteral("not set (optional) -- sun/plan/align need it"),
+                   !site};
     QMetaObject::invokeMethod(this, [this, rows] {
       doctorRunning_ = false;
-      QStringList lines, fails;
+      QStringList lines, fails, notes;
       for (const auto& r : rows) {
         lines << QStringLiteral("%1  %2 %3")
-                     .arg(r.ok ? QStringLiteral("ok  ") : QStringLiteral("BAD "),
+                     .arg(r.note ? QStringLiteral("--  ")
+                                 : r.ok ? QStringLiteral("ok  ") : QStringLiteral("BAD "),
                           r.name.leftJustified(14), r.detail);
         if (!r.ok) fails << r.name;
+        else if (r.note) notes << r.name;
       }
       txtDoctor_->setText(lines.join(QStringLiteral("\n")));
       lblDoctorStamp_->setText(QStringLiteral("checked %1").arg(
           QTime::currentTime().toString(QStringLiteral("HH:mm:ss"))));
       const QString chip =
-          fails.isEmpty() ? QStringLiteral("doctor: ok")
-                          : QStringLiteral("doctor: FAIL - %1")
-                                .arg(fails.join(QStringLiteral(", ")));
+          !fails.isEmpty() ? QStringLiteral("doctor: FAIL - %1").arg(fails.join(QStringLiteral(", ")))
+          : !notes.isEmpty() ? QStringLiteral("doctor: ok (%1 unset)").arg(notes.join(QStringLiteral(", ")))
+                             : QStringLiteral("doctor: ok");
       btnDoctorChip_->setText(chip);
       btnDoctorChip_->setStyleSheet(
           QStringLiteral("QPushButton{border:none;background:transparent;color:%1;"

@@ -549,10 +549,16 @@ int cmd_sessions(Config& cfg) {
 }
 
 int cmd_doctor(Config& cfg) {
-  int problems = 0;
+  int problems = 0, notes = 0;
   auto report = [&](bool ok, const char* what, const std::string& detail) {
     std::printf("  %s  %-28s %s\n", ok ? "ok " : "BAD", what, detail.c_str());
     if (!ok) ++problems;
+  };
+  // A note is a choice the install has not made yet, not a fault in it:
+  // it is printed, it does not count as a problem, and doctor still exits 0.
+  auto note = [&](const char* what, const std::string& detail) {
+    std::printf("  --   %-28s %s\n", what, detail.c_str());
+    ++notes;
   };
 
   report(true, "version", std::string(kVersion) + " (" + kCodename + ")");
@@ -578,12 +584,20 @@ int cmd_doctor(Config& cfg) {
   report(jpg.size() > 4 && jpg[0] == 0xff && jpg[1] == 0xd8, "jpeg encoder",
          std::to_string(jpg.size()) + " bytes for a test frame");
 
-  report(cfg.boolean("site_set", false), "site",
-         cfg.boolean("site_set", false)
-             ? format_latlon(cfg.num("site_lat", 0), cfg.num("site_lon", 0))
-             : "not set -- sun/plan/align need `birdshot site set`");
+  // The site is optional: capture, the gates and the synthetic scene all run
+  // without one. Only the Horizons commands (sun, plan, align) need it, and
+  // they say so themselves, so an unset site is a note here, not a failure.
+  if (cfg.boolean("site_set", false))
+    report(true, "site", format_latlon(cfg.num("site_lat", 0), cfg.num("site_lon", 0)));
+  else
+    note("site", "not set (optional) -- sun/plan/align need `birdshot site set`");
 
-  std::printf(problems ? "doctor: %d problem(s)\n" : "doctor: healthy\n", problems);
+  if (problems)
+    std::printf("doctor: %d problem(s)\n", problems);
+  else if (notes)
+    std::printf("doctor: healthy, %d note(s)\n", notes);
+  else
+    std::printf("doctor: healthy\n");
   return problems ? 1 : 0;
 }
 

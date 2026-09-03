@@ -6,6 +6,17 @@ Notable changes to birdshot. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/). The version string lives in
 `src/birdshot/__init__.py` as `__version__`.
 
+## [Unreleased]
+
+- **Doctor no longer fails on an unset site.** Capture, the gates and the
+  synthetic scene all run without a site; only `sun`, `plan` and `align`
+  need one, and they say so themselves. `birdshot doctor` now prints the
+  site as a note (`--`), reports "healthy, 1 note(s)" and exits 0, and the
+  GUI's status chip reads "doctor: ok (site unset)" in green rather than
+  "FAIL - site" in red. Found on a fresh install with no camera, running
+  the shipped synthetic backend: the defaults produced an error out of the
+  box for a choice the user had not made yet.
+
 ## [2.0.0-rc1] — 2026-08-30 — "Migration" (the native line)
 
 The pipeline rewritten in C++17 under `native/`: no Python, no runtime, no
