@@ -33,5 +33,5 @@ No runtime dependencies.
 %{_bindir}/birdshot
 
 %changelog
-* Sun Aug 30 2026 Paul Richeson - 2.0.0~rc1-1
+* Sun Aug 30 2026 Paul Richeson <ports@birdshot.org> - 2.0.0~rc1-1
 - First native release candidate

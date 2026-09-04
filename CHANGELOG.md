@@ -352,7 +352,7 @@ across all five commits rather than fixed going forward:
   still overridable by `PI_HOST`.
 - `/home/<user>/…` → `/home/pi/…`, the account the software actually deploys to.
 - A specific USB stick's volume label → `/media/pi/ARCHIVE`.
-- `Copyright (c) 2026 Paul Richeson <email>` → `Copyright (c) 2026 Paul Richeson`, in the
+- `Copyright (c) 2026 <email>` → `Copyright (c) 2026 Paul Richeson`, in the
   `LICENSE` and in all 27 SPDX file headers.
 
 Verified: no blob in any commit contains a private address, a personal home or

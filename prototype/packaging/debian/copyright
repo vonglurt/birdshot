@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: birdshot
-Upstream-Contact: Paul Richeson
+Upstream-Contact: Paul Richeson <ports@birdshot.org>
 Source: https://github.com/vonglurt/birdshot
 
 Files: *

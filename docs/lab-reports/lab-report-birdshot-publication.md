@@ -298,7 +298,7 @@ Result, verified with `git log --format='%h sig:%G? %an <%ae>'`:
 
 | | Before | After |
 |---|---|---|
-| Author | Paul Richeson | `Paul Richeson` |
+| Author | `paulr` | `Paul Richeson` |
 | Signature | `N` (unsigned) ×5 | `G` (good) ×5 |
 | Author dates | 2026-07-31 | 2026-07-31, unchanged |
 
@@ -407,7 +407,7 @@ All checks re-run against the final tree and the rewritten history.
 | No pre-rebrand name | `make sanitise` | 0 files |
 | Only source in history | `git log --all --name-only` | `.py`/`.sh`/`.md` + `LICENSE` + `.gitignore` |
 | Every commit signed | `git log --format='%G?'` | `G` ×5 |
-| Every commit attributed | `git log --format='%an <%ae>'` | `Paul Richeson` ×5 |
+| Every commit attributed | `git log --format='%an'` | `Paul Richeson` ×5 |
 | Python parses | `make lint` | 17 modules, 3 scripts |
 | Shell parses | `make lint` | 5 scripts |
 | Hook rejects a leak | staged probe with all four violations | refused, 4 rules fired |
@@ -559,4 +559,4 @@ convenient GUI import does not quietly spend it.
 
 ---
 
-*MIT — Copyright (c) 2026 Paul Richeson. Contact: Paul Richeson*
+*MIT — Copyright (c) 2026 Paul Richeson*
