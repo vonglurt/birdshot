@@ -11,7 +11,7 @@ DISTVERSIONPREFIX=	v
 DISTVERSION=	1.1.0-rc1
 CATEGORIES=	graphics python
 
-MAINTAINER=	paulr@sdf.org
+MAINTAINER=	Paul Richeson
 COMMENT=	Bird and sky capture for the Raspberry Pi HQ Camera
 WWW=		https://birdshot.org
 

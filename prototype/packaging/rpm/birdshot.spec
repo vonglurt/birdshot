@@ -49,5 +49,5 @@ install -Dm644 packaging/share/birdshot.desktop \
 %doc README.md docs/GUIDE.md
 
 %changelog
-* Sun Aug 30 2026 Paul Richeson <paulr@sdf.org> - 1.1.0~rc1-1
+* Sun Aug 30 2026 Paul Richeson - 1.1.0~rc1-1
 - First spec: pyproject macros over the upstream build.

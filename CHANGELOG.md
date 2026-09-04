@@ -352,7 +352,7 @@ across all five commits rather than fixed going forward:
   still overridable by `PI_HOST`.
 - `/home/<user>/…` → `/home/pi/…`, the account the software actually deploys to.
 - A specific USB stick's volume label → `/media/pi/ARCHIVE`.
-- `Copyright (c) 2026 <email>` → `Copyright (c) 2026 Paul Richeson`, in the
+- `Copyright (c) 2026 Paul Richeson <email>` → `Copyright (c) 2026 Paul Richeson`, in the
   `LICENSE` and in all 27 SPDX file headers.
 
 Verified: no blob in any commit contains a private address, a personal home or
@@ -362,7 +362,7 @@ that check on demand.
 ### Rewritten history
 
 All five commits were rebuilt with `git-filter-repo` and re-signed. Author and
-committer are now `Paul Richeson <paulr@sdf.org>` throughout; author dates are
+committer are now `Paul Richeson` throughout; author dates are
 unchanged; every commit verifies with a good SSH signature. Commit hashes are
 therefore all new — the pre-rewrite history was never published, so nothing
 depended on the old ones.

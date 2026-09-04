@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Paul Richeson
-# Maintainer: Paul Richeson <paulr@sdf.org>
+# Maintainer: Paul Richeson
 #
 # birdshot for Alpine, and for copal -- the Alpine flavour whose desktop ships
 # birdshot as its preferred camera software. This is the flagship channel

@@ -3,7 +3,7 @@
 
 # Publishing a Working Instrument: Rebranding, Licence Audit and History Sanitisation of a Raspberry Pi Camera Application
 
-**Author:** Paul Richeson ([vonglurt](https://github.com/vonglurt)) — contact: paulr@sdf.org
+**Author:** Paul Richeson ([vonglurt](https://github.com/vonglurt))
 **Date:** 23 August 2026
 **Licence:** MIT (see `LICENSE`)
 **Project:** `birdshot` — IMX477 bird and sky capture for the Raspberry Pi CM4
@@ -114,7 +114,7 @@ found each of the following in **all five commits**:
 | A private `192.168.x.x` address | `sync.sh`, `mac/pull-photos.sh` | The Pi's address on the author's LAN, and by implication the subnet |
 | `<user>@…`, `/home/<user>/…` | 14 lines across 6 files | The account name on both the Pi and, by inference, the Mac |
 | `/media/<user>/<label>` | 5 lines incl. two config defaults | A specific removable volume's label |
-| `Copyright (c) 2026 paulr@sdf.org` | `LICENSE` + 27 SPDX headers | An email address standing where a legal person should |
+| `Copyright (c) 2026 Paul Richeson` | `LICENSE` + 27 SPDX headers | An email address standing where a legal person should |
 
 The values are given in redacted form above, which is not squeamishness: this
 report is published from the repository it audits, and reproducing the literal
@@ -298,7 +298,7 @@ Result, verified with `git log --format='%h sig:%G? %an <%ae>'`:
 
 | | Before | After |
 |---|---|---|
-| Author | `paulr <paulr@sdf.org>` | `Paul Richeson <paulr@sdf.org>` |
+| Author | Paul Richeson | `Paul Richeson` |
 | Signature | `N` (unsigned) ×5 | `G` (good) ×5 |
 | Author dates | 2026-07-31 | 2026-07-31, unchanged |
 
@@ -407,7 +407,7 @@ All checks re-run against the final tree and the rewritten history.
 | No pre-rebrand name | `make sanitise` | 0 files |
 | Only source in history | `git log --all --name-only` | `.py`/`.sh`/`.md` + `LICENSE` + `.gitignore` |
 | Every commit signed | `git log --format='%G?'` | `G` ×5 |
-| Every commit attributed | `git log --format='%an <%ae>'` | `Paul Richeson <paulr@sdf.org>` ×5 |
+| Every commit attributed | `git log --format='%an <%ae>'` | `Paul Richeson` ×5 |
 | Python parses | `make lint` | 17 modules, 3 scripts |
 | Shell parses | `make lint` | 5 scripts |
 | Hook rejects a leak | staged probe with all four violations | refused, 4 rules fired |
@@ -559,4 +559,4 @@ convenient GUI import does not quietly spend it.
 
 ---
 
-*MIT — Copyright (c) 2026 Paul Richeson. Contact: paulr@sdf.org*
+*MIT — Copyright (c) 2026 Paul Richeson. Contact: Paul Richeson*

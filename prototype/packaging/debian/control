@@ -1,7 +1,7 @@
 Source: birdshot
 Section: graphics
 Priority: optional
-Maintainer: Paul Richeson <paulr@sdf.org>
+Maintainer: Paul Richeson
 Build-Depends: debhelper-compat (= 13),
                dh-sequence-python3,
                pybuild-plugin-pyproject,

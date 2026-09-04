@@ -3,7 +3,7 @@
 
 ## Reporting a vulnerability
 
-Email **paulr@sdf.org** with `[birdshot]` in the subject. Please do not open a
+Email **Paul Richeson** with `[birdshot]` in the subject. Please do not open a
 public issue for anything exploitable. Expect an acknowledgement within about a
 week; this is a personal project, not a staffed one.
 
